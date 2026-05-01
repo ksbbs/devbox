@@ -19,6 +19,7 @@
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
 | GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
 | Web Dashboard | 状态总览、流量图表、访问日志、配置管理、使用指南 |
+| 日志自动清除 | 流量日志保留可配置天数（默认 30 天），过期自动清理 |
 
 ## 快速部署
 
@@ -140,6 +141,7 @@ cache:
 logging:
   level: "info"
   access_log: true
+  retention_days: 30              # 流量日志保留天数
 ```
 
 ### 环境变量覆盖
@@ -154,6 +156,7 @@ DEVBOX_CACHE_DIR=/data/cache
 DEVBOX_CACHE_MAX_SIZE=10GB
 DEVBOX_MIRROR_NPM_UPSTREAM=https://registry.npmmirror.com
 DEVBOX_MIRROR_NPM_ENABLED=false
+DEVBOX_LOGGING_RETENTION_DAYS=90
 ```
 
 ### Web UI 鉴权

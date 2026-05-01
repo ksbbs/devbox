@@ -46,8 +46,9 @@ type CacheConfig struct {
 }
 
 type LoggingConfig struct {
-	Level      string `yaml:"level"`
-	AccessLog  bool   `yaml:"access_log"`
+	Level         string `yaml:"level"`
+	AccessLog     bool   `yaml:"access_log"`
+	RetentionDays int    `yaml:"retention_days"`
 }
 
 func Load(path string) (*Config, error) {
@@ -86,6 +87,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
+	}
+	if cfg.Logging.RetentionDays == 0 {
+		cfg.Logging.RetentionDays = 30
 	}
 
 	defaultMirrors := map[string]MirrorConfig{
@@ -131,6 +135,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("DEVBOX_CACHE_MAX_SIZE"); v != "" {
 		cfg.Cache.MaxSize = v
+	}
+	if v := os.Getenv("DEVBOX_LOGGING_RETENTION_DAYS"); v != "" {
+		cfg.Logging.RetentionDays = mustInt(v)
 	}
 
 	for name := range cfg.Mirrors {

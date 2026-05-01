@@ -185,3 +185,12 @@ func (s *Store) GetLatestHealth() ([]HealthStatus, error) {
 func (s *Store) Close() error {
 	return s.db.Close()
 }
+
+func (s *Store) PurgeOldTraffic(retentionDays int) (int64, error) {
+	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format(time.RFC3339)
+	result, err := s.db.Exec("DELETE FROM traffic WHERE created_at < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

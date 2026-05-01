@@ -115,6 +115,9 @@ func (s *Server) Start() error {
 	// Start cache cleanup timer
 	go s.cacheCleanup()
 
+	// Start traffic log cleanup timer
+	go s.trafficCleanup()
+
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
 	log.Printf("DevBox starting on %s", addr)
 	return http.ListenAndServe(addr, logMiddleware(mux, s.cfg.Logging.AccessLog))
@@ -171,6 +174,18 @@ func (s *Server) cacheCleanup() {
 	ticker := time.NewTicker(1 * time.Hour)
 	for range ticker.C {
 		s.cache.CleanExpired()
+	}
+}
+
+func (s *Server) trafficCleanup() {
+	ticker := time.NewTicker(6 * time.Hour)
+	for range ticker.C {
+		n, err := s.store.PurgeOldTraffic(s.cfg.Logging.RetentionDays)
+		if err != nil {
+			log.Printf("traffic cleanup error: %v", err)
+		} else if n > 0 {
+			log.Printf("purged %d old traffic records (retention: %d days)", n, s.cfg.Logging.RetentionDays)
+		}
 	}
 }
 

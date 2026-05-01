@@ -15,6 +15,7 @@ const features = [
   { name: 'Traffic Analytics', status: 'stable', icon: '◎' },
   { name: 'GitHub API Proxy', status: 'stable', icon: '◆' },
   { name: 'Web UI Auth', status: 'stable', icon: '▣' },
+  { name: 'Log Auto Cleanup', status: 'stable', icon: '▦' },
   { name: 'PWA Support', status: 'planned', icon: '◈' },
   { name: 'Auto Update Notify', status: 'planned', icon: '◉' },
   { name: 'Plugin System', status: 'planned', icon: '◐' }

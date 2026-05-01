@@ -33,15 +33,16 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	usageMap := map[string]string{
-		"npm":    fmt.Sprintf("npm config set registry %s/npm", baseURL),
-		"pypi":   fmt.Sprintf("pip install <pkg> -i %s/pypi", baseURL),
-		"docker": fmt.Sprintf("配置 /etc/docker/daemon.json: registry-mirrors: [\"%s/docker\"]", baseURL),
-		"golang": fmt.Sprintf("go env -w GOPROXY=%s/golang,direct", baseURL),
-		"cran":   fmt.Sprintf("options(repos=c(CRAN=\"%s/cran\"))", baseURL),
-		"ghcr":   fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", baseURL),
-		"quay":   fmt.Sprintf("docker pull %s/quay/owner/image:tag", baseURL),
-		"mcr":    fmt.Sprintf("docker pull %s/mcr/owner/image:tag", baseURL),
-		"ghapi":  fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
+		"npm":      fmt.Sprintf("npm config set registry %s/npm", baseURL),
+		"pypi":     fmt.Sprintf("pip install <pkg> -i %s/pypi", baseURL),
+		"docker":   fmt.Sprintf("配置 /etc/docker/daemon.json: registry-mirrors: [\"%s/docker\"]", baseURL),
+		"golang":   fmt.Sprintf("go env -w GOPROXY=%s/golang,direct", baseURL),
+		"cran":     fmt.Sprintf("options(repos=c(CRAN=\"%s/cran\"))", baseURL),
+		"ghcr":     fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", baseURL),
+		"quay":     fmt.Sprintf("docker pull %s/quay/owner/image:tag", baseURL),
+		"mcr":      fmt.Sprintf("docker pull %s/mcr/owner/image:tag", baseURL),
+		"ghapi":    fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
+		"gitproxy": fmt.Sprintf("git clone %s/gh/user/repo", baseURL),
 	}
 
 	mirrors := mirror.All()
@@ -68,6 +69,18 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		statuses = append(statuses, entry)
 	}
+
+	// Add git proxy as a virtual mirror entry
+	gitproxyEntry := map[string]interface{}{
+		"name":     "gitproxy",
+		"pattern":  "/gh/, /gl/",
+		"upstream": "github.com, gitlab.com",
+		"enabled":  true,
+		"status":   "healthy",
+		"error":    "",
+		"usage":    usageMap["gitproxy"],
+	}
+	statuses = append(statuses, gitproxyEntry)
 
 	writeJSON(w, statuses)
 }

@@ -54,3 +54,4 @@ cache:
 logging:
   level: "info"
   access_log: true
+  retention_days: 30              # 流量日志保留天数，过期自动清除
