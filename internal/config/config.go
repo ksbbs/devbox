@@ -176,16 +176,20 @@ func parseDuration(s string) (time.Duration, error) {
 
 func parseCacheMaxSize(cfg *Config) error {
 	s := cfg.Cache.MaxSize
-	multipliers := map[string]int64{
-		"GB": 1 << 30, "MB": 1 << 20, "KB": 1 << 10, "B": 1,
+	// Order matters: check longer suffixes first so "5GB" doesn't match "B"
+	suffixes := []struct {
+		suffix string
+		mul    int64
+	}{
+		{"GB", 1 << 30}, {"MB", 1 << 20}, {"KB", 1 << 10}, {"B", 1},
 	}
-	for suffix, mul := range multipliers {
-		if strings.HasSuffix(s, suffix) {
-			val, err := strconv.ParseInt(strings.TrimSuffix(s, suffix), 10, 64)
+	for _, sf := range suffixes {
+		if strings.HasSuffix(s, sf.suffix) {
+			val, err := strconv.ParseInt(strings.TrimSuffix(s, sf.suffix), 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid cache max_size: %s", s)
 			}
-			cfg.Cache.MaxSizeBytes = val * mul
+			cfg.Cache.MaxSizeBytes = val * sf.mul
 			return nil
 		}
 	}
