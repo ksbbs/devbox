@@ -1,0 +1,39 @@
+server:
+  port: 8080
+  auth_token: ""
+
+mirrors:
+  npm:
+    enabled: true
+    upstream: "https://registry.npmjs.org"
+    cache_ttl: "7d"
+  pypi:
+    enabled: true
+    upstream: "https://pypi.org/simple"
+    cache_ttl: "30d"
+  docker:
+    enabled: true
+    upstream: "https://registry-1.docker.io"
+    cache_ttl: "0"
+  golang:
+    enabled: true
+    upstream: "https://proxy.golang.org"
+    cache_ttl: "0"
+  cran:
+    enabled: true
+    upstream: "https://cran.r-project.org"
+    cache_ttl: "30d"
+
+gitproxy:
+  enabled: true
+  github_upstream: "https://github.com"
+  gitlab_upstream: "https://gitlab.com"
+  cache_ttl: "7d"
+
+cache:
+  dir: "/data/cache"
+  max_size: "5GB"
+
+logging:
+  level: "info"
+  access_log: true

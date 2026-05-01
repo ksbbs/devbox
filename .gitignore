@@ -1,0 +1,19 @@
+# Go
+devbox
+devbox.exe
+*.exe
+
+# Frontend
+web/dist/
+web/node_modules/
+
+# Data
+/data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
