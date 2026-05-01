@@ -156,6 +156,20 @@ DEVBOX_MIRROR_NPM_UPSTREAM=https://registry.npmmirror.com
 DEVBOX_MIRROR_NPM_ENABLED=false
 ```
 
+### Web UI 鉴权
+
+设置 `AUTH_TOKEN` 环境变量后，访问 Dashboard 需先输入密码登录：
+
+```bash
+# .env 文件中设置
+AUTH_TOKEN=my-secret-password
+
+# 或直接用环境变量
+docker compose up -d
+```
+
+**注意**：鉴权仅影响 Dashboard 界面，镜像加速和 Git 代理服务不受影响，无需密码即可使用。不设置 `AUTH_TOKEN` 则 Dashboard 无需登录直接访问。
+
 ## 使用方式
 
 ### npm 镜像加速
