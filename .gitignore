@@ -1,7 +1,7 @@
 # Go
-devbox
-devbox.exe
-*.exe
+/devbox
+/devbox.exe
+/*.exe
 
 # Frontend
 web/dist/
