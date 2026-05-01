@@ -33,8 +33,7 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: devbox:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - name: Start container
         run: docker run -d --name devbox-test -p 8080:8080 -v devbox-test-data:/data devbox:test
