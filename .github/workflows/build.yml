@@ -41,7 +41,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Start container
-        run: docker run -d --name devbox-test -p 8080:8080 -v devbox-test-data:/data devbox:test
+        run: docker run -d --name devbox-test -p 8080:8080 -v devbox-test-data:/data devbox:test -c /etc/devbox/default.yaml -f /usr/share/devbox/frontend
 
       - name: Wait and check startup
         run: |
