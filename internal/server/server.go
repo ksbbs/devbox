@@ -1,12 +1,14 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"devbox/internal/config"
@@ -17,6 +19,30 @@ import (
 	"devbox/internal/store"
 )
 
+// tokenCache stores registry auth tokens with expiry
+type tokenCache struct {
+	mu    sync.RWMutex
+	tokens map[string]*cachedToken
+}
+
+type cachedToken struct {
+	token     string
+	expiresAt time.Time
+}
+
+type registryInfo struct {
+	upstream string
+	authURL  string
+	service  string
+}
+
+var registries = map[string]registryInfo{
+	"docker": {upstream: "https://registry-1.docker.io", authURL: "https://auth.docker.io/token", service: "registry.docker.io"},
+	"ghcr":   {upstream: "https://ghcr.io", authURL: "https://ghcr.io/token", service: "ghcr.io"},
+	"quay":   {upstream: "https://quay.io", authURL: "https://quay.io/v2/auth", service: "quay.io"},
+	"mcr":    {upstream: "https://mcr.microsoft.com", authURL: "https://mcr.microsoft.com/v2/auth", service: "mcr.microsoft.com"},
+}
+
 type Server struct {
 	cfg        *config.Config
 	cache      *mirror.Cache
@@ -25,7 +51,11 @@ type Server struct {
 	store      *store.Store
 	limiter    *ratelimit.Limiter
 	search     *dashboard.SearchHandler
-	frontDir   string
+	tokenCache *tokenCache
+	// Custom client: strip Authorization when following 307 redirects to CDN
+	// (Docker Hub blob storage on Cloudflare rejects auth headers)
+	registryClient *http.Client
+	frontDir       string
 }
 
 func New(cfg *config.Config, frontDir string) (*Server, error) {
@@ -57,21 +87,25 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 
 	var limiter *ratelimit.Limiter
 	if cfg.RateLimit.Enabled {
-		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist)
+		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist)
 	}
 
-	search := dashboard.NewSearchHandler()
+	s := &Server{
+		cfg:            cfg,
+		cache:          cache,
+		gitProxy:       gp,
+		dash:           dash,
+		store:          st,
+		limiter:        limiter,
+		search:         dashboard.NewSearchHandler(),
+		tokenCache:     &tokenCache{tokens: make(map[string]*cachedToken)},
+		registryClient: newRegistryClient(),
+		frontDir:       frontDir,
+	}
 
-	return &Server{
-		cfg:      cfg,
-		cache:    cache,
-		gitProxy: gp,
-		dash:     dash,
-		store:    st,
-		limiter:  limiter,
-		search:   search,
-		frontDir: frontDir,
-	}, nil
+	dash.SetRateLimitConfigAccessor(s)
+
+	return s, nil
 }
 
 func (s *Server) Start() error {
@@ -96,23 +130,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/stats/traffic", s.dash.TrafficHandler)
 	mux.HandleFunc("/api/stats/logs", s.dash.LogHandler)
 	mux.HandleFunc("/api/config/mirrors", s.dash.MirrorConfigHandler)
+	mux.HandleFunc("/api/config/ratelimit", s.dash.RateLimitConfigHandler)
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
-
-	// Mirror search API
 	mux.HandleFunc("/api/search", s.search.Search)
 
-	// Docker v2 registry API routes
-	// Allows: docker pull <host>/ghcr/owner/image:tag
-	// Docker sends /v2/ ping first, then /v2/{registry}/... requests
+	// Docker v2 registry API — proxy handles auth transparently
 	mux.HandleFunc("/v2/", s.registryV2Handler)
 
-	// Docker v2 token auth proxy — intercept token requests
-	// When upstream returns 401 + WWW-Authenticate, Docker needs a token
-	// We proxy the token request so Docker doesn't need direct upstream access
-	mux.HandleFunc("/token", s.tokenAuthHandler)
-
-	// Frontend static files from directory
+	// Frontend static files
 	if s.frontDir != "" {
 		if _, err := os.Stat(s.frontDir); err == nil {
 			fileServer := http.FileServer(http.Dir(s.frontDir))
@@ -121,9 +147,7 @@ func (s *Server) Start() error {
 				if path == "/" {
 					path = "/index.html"
 				}
-				// Check if file exists on disk
 				if _, err := os.Stat(s.frontDir + path); err != nil {
-					// SPA fallback to index.html
 					r.URL.Path = "/index.html"
 				}
 				fileServer.ServeHTTP(w, r)
@@ -133,14 +157,10 @@ func (s *Server) Start() error {
 		}
 	}
 
-	// Start cache cleanup timer
 	go s.cacheCleanup()
-
-	// Start traffic log cleanup timer
 	go s.trafficCleanup()
-
-	// Start rate limiter cleanup timer
 	go s.rateLimitCleanup()
+	go s.tokenCacheCleanup()
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
 	log.Printf("DevBox starting on %s", addr)
@@ -156,22 +176,14 @@ func (s *Server) Start() error {
 func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
-	// Docker v2 API ping: /v2/ → return API version header
+	// Docker v2 API ping — always return 200 (auth handled transparently by proxy)
 	if path == "/v2/" || path == "/v2" {
 		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// /v2/{registry}/... → proxy to corresponding upstream registry
-	registryMap := map[string]string{
-		"docker": "https://registry-1.docker.io",
-		"ghcr":   "https://ghcr.io",
-		"quay":   "https://quay.io",
-		"mcr":    "https://mcr.microsoft.com",
-	}
-
-	// Extract registry name from path: /v2/{registry}/...
+	// /v2/{registry}/{path} → extract registry name
 	rest := strings.TrimPrefix(path, "/v2/")
 	parts := strings.SplitN(rest, "/", 2)
 	registryName := parts[0]
@@ -180,33 +192,73 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstream, ok := registryMap[registryName]
+	regInfo, ok := registries[registryName]
 	if !ok {
 		http.Error(w, "unknown registry", http.StatusNotFound)
 		return
 	}
 
-	// Build upstream request — preserve method, body, and all headers
-	target := upstream + "/v2/" + parts[1]
+	// Build upstream URL (strip registry alias, keep real path)
+	target := regInfo.upstream + "/v2/" + parts[1]
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
 
+	// Derive auth scope from path for token request
+	scope := deriveScope(registryName, parts[1])
+
+	// Get token (cached or fresh)
+	token, err := s.getRegistryToken(regInfo, scope)
+	if err != nil {
+		log.Printf("[registry] token error for %s: %v", registryName, err)
+		// Try without token (some repos are public)
+		s.proxyRegistryRequest(w, r, target, "")
+		return
+	}
+
+	log.Printf("[registry] %s %s → %s (token=%s...)", r.Method, path, target, token[:min(10, len(token))])
+	s.proxyRegistryRequest(w, r, target, token)
+}
+
+func newRegistryClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Strip Authorization when redirecting to a different host
+			// (CDN blob storage like Cloudflare rejects auth headers)
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				req.Header.Del("Authorization")
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, target string, token string) {
 	upstreamReq, err := http.NewRequest(r.Method, target, r.Body)
 	if err != nil {
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
+
+	// Copy client headers (except Host)
 	for k, vv := range r.Header {
 		if k == "Host" {
-			continue // let Go set the correct Host for the upstream
+			continue
 		}
 		for _, v := range vv {
 			upstreamReq.Header.Add(k, v)
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(upstreamReq)
+	// Inject our proxy token if available (replaces any client token)
+	if token != "" {
+		upstreamReq.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := s.registryClient.Do(upstreamReq)
 	if err != nil {
 		log.Printf("[registry] upstream error: %v", err)
 		http.Error(w, "upstream error", http.StatusBadGateway)
@@ -214,28 +266,79 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Always include Docker v2 API version header in responses
-	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-
-	// If 401, rewrite WWW-Authenticate to point to our /token endpoint
-	if resp.StatusCode == http.StatusUnauthorized {
-		wwAuth := resp.Header.Get("Www-Authenticate")
-		if wwAuth != "" {
-			newAuth := s.rewriteAuthHeader(wwAuth, r)
-			log.Printf("[registry] rewrite auth: %s → %s", wwAuth, newAuth)
-			resp.Header.Del("Www-Authenticate")
-			resp.Header.Set("Www-Authenticate", newAuth)
-		} else {
-			log.Printf("[registry] 401 without Www-Authenticate header")
+	// If 401 with our token, clear cache and retry once
+	if resp.StatusCode == 401 && token != "" {
+// Clear stale token from cache using proper key
+		rest := strings.TrimPrefix(r.URL.Path, "/v2/")
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) >= 1 {
+			regInfo, ok := registries[parts[0]]
+			if ok {
+				scope := deriveScope(parts[0], parts[1])
+				cacheKey := regInfo.service + ":" + scope
+				s.tokenCache.mu.Lock()
+				delete(s.tokenCache.tokens, cacheKey)
+				s.tokenCache.mu.Unlock()
+			}
 		}
+
+		resp.Body.Close()
+		// Retry without token — let upstream give fresh 401
+		log.Printf("[registry] token rejected, retrying without token")
+		s.proxyRegistryRequest(w, r, target, "")
+		return
 	}
 
-	log.Printf("[registry] %s %s → %s %d", r.Method, path, target, resp.StatusCode)
+	// If 401 without token, get a new token with scope and retry
+	if resp.StatusCode == 401 && token == "" {
+		// Parse scope from WWW-Authenticate header
+		wwAuth := resp.Header.Get("Www-Authenticate")
+		scope := extractScopeFromAuthHeader(wwAuth)
 
-	// Copy response headers (excluding any we've already set)
+		// Find registry info from path
+		rest := strings.TrimPrefix(r.URL.Path, "/v2/")
+		parts := strings.SplitN(rest, "/", 2)
+		regInfo, ok := registries[parts[0]]
+
+		if ok && scope != "" {
+			newToken, err := s.getRegistryToken(regInfo, scope)
+			if err == nil && newToken != "" {
+				resp.Body.Close()
+				log.Printf("[registry] got new token with scope=%s, retrying", scope)
+				s.proxyRegistryRequest(w, r, target, newToken)
+				return
+			}
+		}
+
+		// Can't get token, return 401 with rewritten WWW-Authenticate
+		// to let Docker client try to authenticate itself
+		if wwAuth != "" {
+			proxyHost := s.cfg.Server.PublicURL
+			if proxyHost == "" {
+				proxyHost = "http://" + r.Host
+			}
+			proxyHost = strings.TrimRight(proxyHost, "/")
+			for _, domain := range []string{
+				"https://auth.docker.io",
+				"https://ghcr.io",
+				"https://quay.io",
+				"https://mcr.microsoft.com",
+			} {
+				wwAuth = strings.ReplaceAll(wwAuth, domain, proxyHost)
+			}
+			w.Header().Set("Www-Authenticate", wwAuth)
+		}
+		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
+		w.WriteHeader(401)
+		io.Copy(w, resp.Body)
+		return
+	}
+
+	// Copy response headers
+	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
 	for k, vv := range resp.Header {
 		if k == "Docker-Distribution-API-Version" {
-			continue // we already set this above
+			continue
 		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
@@ -245,75 +348,155 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-func (s *Server) rewriteAuthHeader(authHeader string, r *http.Request) string {
-	// Simple string replacement approach (same as hubproxy)
-	// Replace all upstream auth URLs with our proxy's /token endpoint
-	proxyHost := s.cfg.Server.PublicURL
-	if proxyHost == "" {
-		proxyHost = "http://" + r.Host
-	}
-	proxyHost = strings.TrimRight(proxyHost, "/")
-
-	replacements := map[string]string{
-		"https://auth.docker.io":   proxyHost,
-		"https://ghcr.io":         proxyHost,
-		"https://quay.io":         proxyHost,
-		"https://mcr.microsoft.com": proxyHost,
-	}
-	for old, new := range replacements {
-		authHeader = strings.ReplaceAll(authHeader, old, new)
-	}
-	return authHeader
-}
-
-func (s *Server) tokenAuthHandler(w http.ResponseWriter, r *http.Request) {
-	// Proxy Docker v2 token requests to upstream auth servers
-	// Docker sends: GET /token?service=ghcr.io&scope=repository:ksbbs/devbox:pull
-	service := r.URL.Query().Get("service")
-
-	authMap := map[string]string{
-		"docker.io":            "https://auth.docker.io/token",
-		"registry.docker.io":   "https://auth.docker.io/token",
-		"ghcr.io":              "https://ghcr.io/token",
-		"quay.io":              "https://quay.io/v2/auth",
-		"mcr.microsoft.com":    "https://mcr.microsoft.com/v2/auth",
+func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, error) {
+	// Check cache first
+	cacheKey := regInfo.service + ":" + scope
+	s.tokenCache.mu.RLock()
+	ct, ok := s.tokenCache.tokens[cacheKey]
+	s.tokenCache.mu.RUnlock()
+	if ok && time.Now().Before(ct.expiresAt) {
+		return ct.token, nil
 	}
 
-	target, ok := authMap[service]
-	if !ok {
-		// Default: try Docker Hub auth
-		target = "https://auth.docker.io/token"
+	// Get fresh token from upstream auth server
+	url := regInfo.authURL + "?service=" + regInfo.service
+	if scope != "" {
+		url += "&scope=" + scope
 	}
 
-	// Forward the full query string
-	targetURL := target + "?" + r.URL.RawQuery
-
-	log.Printf("[token] service=%s → %s", service, targetURL)
-
-	resp, err := http.Get(targetURL)
+	resp, err := http.Get(url)
 	if err != nil {
-		log.Printf("[token] upstream error: %v", err)
-		http.Error(w, "auth server error", http.StatusBadGateway)
-		return
+		return "", fmt.Errorf("auth request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	log.Printf("[token] upstream responded: %d", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("auth server returned %d", resp.StatusCode)
+	}
 
-	// Also rewrite WWW-Authenticate in token response (some auth servers include it)
-	for k, vv := range resp.Header {
-		if k == "Www-Authenticate" || k == "WWW-Authenticate" {
-			for _, v := range vv {
-				w.Header().Add(k, s.rewriteAuthHeader(v, r))
-			}
-		} else {
-			for _, v := range vv {
-				w.Header().Add(k, v)
+	var tokenResp struct {
+		Token     string `json:"token"`
+		ExpiresIn int    `json:"expires_in"` // seconds
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("parse token response: %w", err)
+	}
+
+	if tokenResp.Token == "" {
+		return "", fmt.Errorf("empty token")
+	}
+
+	// Cache token (use expires_in minus 5 min safety margin, min 2 min)
+	ttl := time.Duration(tokenResp.ExpiresIn) * time.Second
+	if ttl == 0 {
+		ttl = 5 * time.Minute
+	}
+	ttl = ttl - 5*time.Minute
+	if ttl < 2*time.Minute {
+		ttl = 2 * time.Minute
+	}
+
+	s.tokenCache.mu.Lock()
+	s.tokenCache.tokens[cacheKey] = &cachedToken{
+		token:     tokenResp.Token,
+		expiresAt: time.Now().Add(ttl),
+	}
+	s.tokenCache.mu.Unlock()
+
+	log.Printf("[token] got token for %s scope=%s expires_in=%ds", regInfo.service, scope, tokenResp.ExpiresIn)
+	return tokenResp.Token, nil
+}
+
+func (s *Server) tokenCacheCleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	for range ticker.C {
+		s.tokenCache.mu.Lock()
+		now := time.Now()
+		for k, v := range s.tokenCache.tokens {
+			if now.After(v.expiresAt) {
+				delete(s.tokenCache.tokens, k)
 			}
 		}
+		s.tokenCache.mu.Unlock()
 	}
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+}
+
+func deriveScope(registryName string, path string) string {
+	// Derive scope from path: owner/image/manifests/ref → repository:owner/image:pull
+	segments := strings.Split(path, "/")
+	if len(segments) < 2 {
+		return ""
+	}
+	// Detect if segments[1] is an action keyword (manifests/blobs/tags)
+	// vs an image name. Official images like nginx have path: nginx/manifests/latest
+	actions := map[string]bool{"manifests": true, "blobs": true, "tags": true}
+	if len(segments) >= 3 && actions[segments[1]] {
+		// Official image (no namespace): nginx → library/nginx
+		repo := segments[0]
+		if registryName == "docker" {
+			repo = "library/" + repo
+		}
+		return "repository:" + repo + ":pull"
+	}
+	if len(segments) >= 3 {
+		repo := segments[0] + "/" + segments[1]
+		return "repository:" + repo + ":pull"
+	}
+	return ""
+}
+
+func extractScopeFromAuthHeader(header string) string {
+	// Parse scope from WWW-Authenticate: Bearer realm="...",service="...",scope="..."
+	idx := strings.Index(header, "scope=")
+	if idx == -1 {
+		return ""
+	}
+	start := idx + 6
+	if start < len(header) && header[start] == '"' {
+		end := strings.Index(header[start+1:], "\"")
+		if end != -1 {
+			return header[start+1 : start+1+end]
+		}
+	}
+	// Unquoted scope
+	end := strings.Index(header[start:], ",")
+	if end == -1 {
+		return header[start:]
+	}
+	return header[start : start+end]
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (s *Server) GetRateLimitConfig() dashboard.RateLimitConfigView {
+	return dashboard.RateLimitConfigView{
+		Enabled:   s.cfg.RateLimit.Enabled,
+		Rate:      s.cfg.RateLimit.Rate,
+		Interval:  s.cfg.RateLimit.Interval,
+		Whitelist: s.cfg.RateLimit.Whitelist,
+		Blacklist: s.cfg.RateLimit.Blacklist,
+	}
+}
+
+func (s *Server) SetRateLimitEnabled(enabled bool) {
+	s.cfg.RateLimit.Enabled = enabled
+}
+
+func (s *Server) SetRateLimitRate(rate int) {
+	s.cfg.RateLimit.Rate = rate
+}
+
+func (s *Server) SetRateLimitWhitelist(list []string) {
+	s.cfg.RateLimit.Whitelist = list
+}
+
+func (s *Server) SetRateLimitBlacklist(list []string) {
+	s.cfg.RateLimit.Blacklist = list
 }
 
 func (s *Server) wrapWithStats(name string, handler http.HandlerFunc) http.HandlerFunc {
@@ -386,7 +569,6 @@ func logMiddleware(next http.Handler, accessLog bool) http.Handler {
 
 func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip rate limiting for dashboard API and frontend
 		path := r.URL.Path
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
 			strings.HasPrefix(path, "/token") || path == "/" ||
@@ -403,7 +585,6 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Start cleanup goroutines for rate limiter expired buckets
 func (s *Server) rateLimitCleanup() {
 	if s.limiter == nil {
 		return

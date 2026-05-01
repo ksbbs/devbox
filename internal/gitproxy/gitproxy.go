@@ -2,6 +2,7 @@ package gitproxy
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -38,6 +39,12 @@ func (gp *GitProxy) Handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (gp *GitProxy) proxyGitHub(w http.ResponseWriter, r *http.Request, path string) {
+	// Auto-convert /blob/ URLs to /raw/ for file content
+	if isBlobRequest(path) {
+		path = strings.Replace(path, "/blob/", "/raw/", 1)
+		gp.proxyRaw(w, r, path)
+		return
+	}
 	// Determine proxy type based on path patterns
 	if isArchiveRequest(path) {
 		gp.proxyArchive(w, r, gp.githubUpstream, path)
@@ -57,6 +64,10 @@ func (gp *GitProxy) proxyGitLab(w http.ResponseWriter, r *http.Request, path str
 
 func isArchiveRequest(path string) bool {
 	return strings.Contains(path, "/archive/")
+}
+
+func isBlobRequest(path string) bool {
+	return strings.Contains(path, "/blob/")
 }
 
 func isRawRequest(path string) bool {
@@ -79,6 +90,11 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 		return
 	}
 	defer resp.Body.Close()
+	if isHTMLResponse(resp) {
+		log.Printf("[gitproxy] blocking HTML response for %s", path)
+		http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
+		return
+	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
@@ -93,6 +109,11 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	defer resp.Body.Close()
+	if isHTMLResponse(resp) {
+		log.Printf("[gitproxy] blocking HTML response for %s", path)
+		http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
+		return
+	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
@@ -146,4 +167,9 @@ func copyRequestHeaders(newReq *http.Request, orig *http.Request) {
 			newReq.Header.Add(k, v)
 		}
 	}
+}
+
+func isHTMLResponse(resp *http.Response) bool {
+	ct := resp.Header.Get("Content-Type")
+	return strings.HasPrefix(ct, "text/html")
 }

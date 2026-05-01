@@ -1,89 +1,135 @@
 package ratelimit
 
 import (
+	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type Limiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	rate     int           // max requests per interval
-	interval time.Duration // time window
-	whitelist []string
+	mu        sync.Mutex
+	visitors  map[string]*visitorLimiter
+	rate      rate.Limit // tokens per second
+	burst     int        // max burst size
+	whitelist []*net.IPNet
+	blacklist []*net.IPNet
 }
 
-type bucket struct {
-	count    int
-	expiry   time.Time
+type visitorLimiter struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
 }
 
-func New(rate int, interval time.Duration, whitelist []string) *Limiter {
+func New(ratePerWindow int, window time.Duration, whitelist []string, blacklist []string) *Limiter {
+	// Convert rate/interval to tokens per second
+	r := rate.Limit(float64(ratePerWindow) / window.Seconds())
+	burst := ratePerWindow
+
+	wlNets := parseCIDRList(whitelist)
+	blNets := parseCIDRList(blacklist)
+
 	return &Limiter{
-		buckets:   make(map[string]*bucket),
-		rate:      rate,
-		interval:  interval,
-		whitelist: whitelist,
+		visitors:  make(map[string]*visitorLimiter),
+		rate:      r,
+		burst:     burst,
+		whitelist: wlNets,
+		blacklist: blNets,
 	}
 }
 
 func (l *Limiter) Allow(r *http.Request) bool {
 	ip := extractIP(r)
+	ipNet := parseIP(ip)
+
+	// Check blacklist first
+	for _, cidr := range l.blacklist {
+		if cidr.Contains(ipNet) {
+			return false
+		}
+	}
 
 	// Check whitelist
-	for _, w := range l.whitelist {
-		if ip == w {
+	for _, cidr := range l.whitelist {
+		if cidr.Contains(ipNet) {
 			return true
 		}
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	b, ok := l.buckets[ip]
-	if !ok || time.Now().After(b.expiry) {
-		l.buckets[ip] = &bucket{count: 1, expiry: time.Now().Add(l.interval)}
-		return true
+	v, ok := l.visitors[ip]
+	if !ok {
+		v = &visitorLimiter{
+			limiter:  rate.NewLimiter(l.rate, l.burst),
+			lastSeen: time.Now(),
+		}
+		l.visitors[ip] = v
 	}
+	v.lastSeen = time.Now()
+	l.mu.Unlock()
 
-	b.count++
-	if b.count > l.rate {
-		return false
-	}
-	return true
+	return v.limiter.Allow()
 }
 
 func (l *Limiter) Cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	for ip, b := range l.buckets {
-		if now.After(b.expiry) {
-			delete(l.buckets, ip)
+	for ip, v := range l.visitors {
+		if now.Sub(v.lastSeen) > 3*time.Hour {
+			delete(l.visitors, ip)
 		}
 	}
 }
 
+func parseCIDRList(list []string) []*net.IPNet {
+	var nets []*net.IPNet
+	for _, entry := range list {
+		// If no CIDR mask, treat as single IP with /32 or /128
+		if !containsSlash(entry) {
+			entry += "/32"
+		}
+		_, ipNet, err := net.ParseCIDR(entry)
+		if err == nil {
+			nets = append(nets, ipNet)
+		}
+	}
+	return nets
+}
+
+func parseIP(ipStr string) net.IP {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return net.ParseIP("0.0.0.0")
+	}
+	return ip
+}
+
+func containsSlash(s string) bool {
+	for _, c := range s {
+		if c == '/' {
+			return true
+		}
+	}
+	return false
+}
+
 func extractIP(r *http.Request) string {
-	// Check X-Real-IP first (set by nginx)
 	ip := r.Header.Get("X-Real-IP")
 	if ip != "" {
 		return ip
 	}
 	ip = r.Header.Get("X-Forwarded-For")
 	if ip != "" {
-		// Take the first IP in the list
-		if idx := len(ip); idx > 0 {
-			for i := 0; i < len(ip); i++ {
-				if ip[i] == ',' {
-					return ip[:i]
-				}
+		for i := 0; i < len(ip); i++ {
+			if ip[i] == ',' {
+				return ip[:i]
 			}
-			return ip
 		}
+		return ip
 	}
-	// Fall back to RemoteAddr (strip port)
 	host := r.RemoteAddr
 	for i := len(host) - 1; i >= 0; i-- {
 		if host[i] == ':' {

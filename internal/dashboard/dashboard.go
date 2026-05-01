@@ -15,10 +15,31 @@ type Dashboard struct {
 	store     *store.Store
 	authToken string
 	publicURL string
+	rlConfig  RateLimitConfigAccessor
+}
+
+type RateLimitConfigAccessor interface {
+	GetRateLimitConfig() RateLimitConfigView
+	SetRateLimitEnabled(enabled bool)
+	SetRateLimitRate(rate int)
+	SetRateLimitWhitelist(list []string)
+	SetRateLimitBlacklist(list []string)
+}
+
+type RateLimitConfigView struct {
+	Enabled   bool     `json:"enabled"`
+	Rate      int      `json:"rate"`
+	Interval  string   `json:"interval"`
+	Whitelist []string `json:"whitelist"`
+	Blacklist []string `json:"blacklist"`
 }
 
 func New(st *store.Store, authToken string, publicURL string) *Dashboard {
 	return &Dashboard{store: st, authToken: authToken, publicURL: publicURL}
+}
+
+func (d *Dashboard) SetRateLimitConfigAccessor(rl RateLimitConfigAccessor) {
+	d.rlConfig = rl
 }
 
 func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +246,39 @@ func (d *Dashboard) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok", "token": req.Token})
+}
+
+func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if !d.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if d.rlConfig == nil {
+		http.Error(w, "rate limit not available", http.StatusNotFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, d.rlConfig.GetRateLimitConfig())
+		return
+	}
+
+	if r.Method == http.MethodPut {
+		var req RateLimitConfigView
+		if !readJSON(r, &req) {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		d.rlConfig.SetRateLimitEnabled(req.Enabled)
+		d.rlConfig.SetRateLimitRate(req.Rate)
+		d.rlConfig.SetRateLimitWhitelist(req.Whitelist)
+		d.rlConfig.SetRateLimitBlacklist(req.Blacklist)
+		writeJSON(w, d.rlConfig.GetRateLimitConfig())
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (d *Dashboard) checkAuth(r *http.Request) bool {

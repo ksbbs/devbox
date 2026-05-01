@@ -58,6 +58,7 @@ type RateLimitConfig struct {
 	Interval     string        `yaml:"interval"`   // e.g. "3h"
 	IntervalDur  time.Duration // parsed
 	Whitelist    []string      `yaml:"whitelist"`  // IPs exempt from rate limiting
+	Blacklist    []string      `yaml:"blacklist"`  // IPs always blocked
 }
 
 func Load(path string) (*Config, error) {

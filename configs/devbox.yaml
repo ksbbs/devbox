@@ -64,4 +64,5 @@ rate_limit:
   enabled: false                  # 启用 IP 限流
   rate: 500                       # 每个 IP 每时段最大请求数
   interval: "3h"                  # 时段长度
-  whitelist: []                   # 白名单 IP（免限速）
+  whitelist: []                   # 白名单 IP/CIDR（免限速）
+  blacklist: []                   # 黑名单 IP/CIDR（永远禁止）

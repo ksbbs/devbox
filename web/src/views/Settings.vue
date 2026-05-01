@@ -1,15 +1,45 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getPublicConfig } from '../api/client'
+import { getPublicConfig, getRateLimitConfig, updateRateLimitConfig } from '../api/client'
 
 const publicUrl = ref('')
+const rlEnabled = ref(false)
+const rlRate = ref(500)
+const rlWhitelist = ref('')
+const rlBlacklist = ref('')
+const rlSaving = ref(false)
+const rlMsg = ref('')
 
 onMounted(async () => {
   try {
     const config = await getPublicConfig()
     publicUrl.value = config.publicUrl || ''
   } catch { /* ignore */ }
+  try {
+    const rl = await getRateLimitConfig()
+    rlEnabled.value = rl.enabled
+    rlRate.value = rl.rate
+    rlWhitelist.value = (rl.whitelist || []).join(', ')
+    rlBlacklist.value = (rl.blacklist || []).join(', ')
+  } catch { /* ignore — no auth or not available */ }
 })
+
+async function saveRateLimit() {
+  rlSaving.value = true
+  rlMsg.value = ''
+  try {
+    const wl = rlWhitelist.value.split(',').map(s => s.trim()).filter(Boolean)
+    const bl = rlBlacklist.value.split(',').map(s => s.trim()).filter(Boolean)
+    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, whitelist: wl, blacklist: bl })
+    rlEnabled.value = res.enabled
+    rlRate.value = res.rate
+    rlMsg.value = '已保存'
+    setTimeout(() => rlMsg.value = '', 2000)
+  } catch (e: any) {
+    rlMsg.value = '保存失败'
+  }
+  rlSaving.value = false
+}
 
 const features = [
   { name: 'Traffic Analytics', status: 'stable', icon: '◎' },
@@ -67,6 +97,43 @@ const statusText: Record<string, string> = {
             <div class="text-slate-400">v1.1.0</div>
             <div class="text-xs text-emerald-400 mt-1">✓ 运行正常</div>
               <div v-if="publicUrl" class="text-xs text-sky-400 mt-1 font-mono">{{ publicUrl }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 限流设置 -->
+      <div class="settings-card p-6 rounded-2xl">
+        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <span class="text-xl">⊗</span>
+          IP 限流设置
+        </h3>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-300">启用限流</span>
+            <button @click="rlEnabled = !rlEnabled"
+              class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+              :class="rlEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-slate-500 border border-white/10'">
+              {{ rlEnabled ? '已启用' : '已关闭' }}
+            </button>
+          </div>
+          <div v-if="rlEnabled" class="space-y-4">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-300">每时段最大请求</span>
+              <input type="number" v-model="rlRate" min="1" class="w-32 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-slate-200 text-sm focus:border-sky-500/50 focus:outline-none" />
+            </div>
+            <div>
+              <span class="text-slate-300 text-sm">白名单 IP（免限速，逗号分隔）</span>
+              <input type="text" v-model="rlWhitelist" placeholder="如 10.0.0.1, 192.168.1.0/24" class="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-slate-200 text-sm focus:border-sky-500/50 focus:outline-none" />
+            </div>
+            <div>
+              <span class="text-slate-300 text-sm">黑名单 IP（永远禁止，逗号分隔）</span>
+              <input type="text" v-model="rlBlacklist" placeholder="如 1.2.3.4" class="w-full mt-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-slate-200 text-sm focus:border-sky-500/50 focus:outline-none" />
+            </div>
+            <button @click="saveRateLimit" :disabled="rlSaving"
+              class="w-full py-2 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 hover:bg-sky-500/30 transition-all disabled:opacity-50 text-sm font-medium">
+              {{ rlSaving ? '保存中...' : '保存限流设置' }}
+            </button>
+            <div v-if="rlMsg" class="text-center text-sm" :class="rlMsg === '已保存' ? 'text-emerald-400' : 'text-red-400'">{{ rlMsg }}</div>
           </div>
         </div>
       </div>

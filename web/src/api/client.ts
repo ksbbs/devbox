@@ -88,3 +88,11 @@ export async function searchMirrors(q: string, registry?: string) {
   if (registry) params.registry = registry
   return api.get('/search', { params }).then(r => r.data)
 }
+
+export async function getRateLimitConfig() {
+  return api.get('/config/ratelimit').then(r => r.data)
+}
+
+export async function updateRateLimitConfig(config: { enabled: boolean; rate: number; whitelist: string[]; blacklist: string[] }) {
+  return api.put('/config/ratelimit', config).then(r => r.data)
+}
