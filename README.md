@@ -21,15 +21,53 @@
 
 ## 快速部署
 
+### Docker Compose（推荐）
+
+1. 创建 `.env` 文件配置环境变量：
+
+```bash
+# 可选：Dashboard 鉴权 token，空则不鉴权
+AUTH_TOKEN=
+# 公网访问地址（设置后 Dashboard 会显示 HTTPS 命令）
+PUBLIC_URL=https://dev.example.com
+```
+
+2. 启动服务：
+
+```bash
+docker compose up -d
+```
+
+3. 配置 Nginx 反向代理 + SSL（端口已绑定 127.0.0.1，外部无法直接访问）：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name dev.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/dev.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/dev.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Docker Run
+
 ```bash
 docker run -d \
   --name devbox \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -v devbox-data:/data \
+  -e DEVBOX_PUBLIC_URL=https://dev.example.com \
   ghcr.io/ksbbs/devbox:latest
 ```
-
-打开浏览器访问 `http://<你的VPS>:8080` 即可看到 Dashboard。
 
 ## 配置
 
