@@ -1,0 +1,19 @@
+services:
+  devbox:
+    image: ghcr.io/ksbbs/devbox:latest
+    container_name: devbox
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - devbox-data:/data
+    environment:
+      - DEVBOX_AUTH_TOKEN=${AUTH_TOKEN:-}
+    command:
+      - "-c"
+      - "/etc/devbox/default.yaml"
+      - "-f"
+      - "/usr/share/devbox/frontend"
+
+volumes:
+  devbox-data:
