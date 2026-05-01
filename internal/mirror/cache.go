@@ -145,7 +145,11 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 }
 
 func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream string) {
-	resp, err := http.Get(upstream + r.URL.Path)
+	target := upstream + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	resp, err := http.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return

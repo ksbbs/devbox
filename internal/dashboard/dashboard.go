@@ -31,6 +31,10 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
+	// docker pull 命令不能带协议前缀，其他命令和 registry-mirrors 需要
+	hostOnly := baseURL
+	hostOnly = strings.TrimPrefix(hostOnly, "https://")
+	hostOnly = strings.TrimPrefix(hostOnly, "http://")
 
 	usageMap := map[string]string{
 		"npm":      fmt.Sprintf("npm config set registry %s/npm", baseURL),
@@ -38,9 +42,9 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		"docker":   fmt.Sprintf("配置 /etc/docker/daemon.json: registry-mirrors: [\"%s/docker\"]", baseURL),
 		"golang":   fmt.Sprintf("go env -w GOPROXY=%s/golang,direct", baseURL),
 		"cran":     fmt.Sprintf("options(repos=c(CRAN=\"%s/cran\"))", baseURL),
-		"ghcr":     fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", baseURL),
-		"quay":     fmt.Sprintf("docker pull %s/quay/owner/image:tag", baseURL),
-		"mcr":      fmt.Sprintf("docker pull %s/mcr/owner/image:tag", baseURL),
+		"ghcr":     fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", hostOnly),
+		"quay":     fmt.Sprintf("docker pull %s/quay/owner/image:tag", hostOnly),
+		"mcr":      fmt.Sprintf("docker pull %s/mcr/owner/image:tag", hostOnly),
 		"ghapi":    fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
 		"gitproxy": fmt.Sprintf("git clone %s/gh/user/repo", baseURL),
 	}

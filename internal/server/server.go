@@ -146,6 +146,10 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(path, "/v2/")
 	parts := strings.SplitN(rest, "/", 2)
 	registryName := parts[0]
+	if len(parts) < 2 {
+		http.Error(w, "invalid registry path", http.StatusBadRequest)
+		return
+	}
 
 	upstream, ok := registryMap[registryName]
 	if !ok {
@@ -153,8 +157,8 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward auth headers for registry token auth
-	r.URL.Path = "/v2/" + rest
+	// Strip registry name prefix: /v2/ghcr/ksbbs/devbox/... → /v2/ksbbs/devbox/...
+	r.URL.Path = "/v2/" + parts[1]
 	s.cache.ProxyStream(w, r, upstream)
 }
 
