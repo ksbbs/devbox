@@ -6,6 +6,7 @@ const mirrors = ref<any[]>([])
 const loading = ref(true)
 const traffic = ref<any[]>([])
 const publicUrl = ref('')
+const copiedUsage = ref<string | null>(null)
 
 const stats = computed(() => {
   const total = mirrors.value.length
@@ -27,6 +28,12 @@ onMounted(async () => {
   } catch { /* ignore */ }
   loading.value = false
 })
+
+function copyUsage(m: any) {
+  navigator.clipboard.writeText(m.usage)
+  copiedUsage.value = m.name
+  setTimeout(() => copiedUsage.value = null, 2000)
+}
 </script>
 
 <template>
@@ -117,6 +124,17 @@ onMounted(async () => {
               <div class="flex items-center gap-2">
                 <span class="text-slate-500">Upstream:</span>
                 <span class="text-slate-300 truncate">{{ m.upstream }}</span>
+              </div>
+              <div v-if="m.usage" class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Usage:</span>
+                <code class="text-xs text-emerald-400 font-mono truncate">{{ m.usage }}</code>
+                <button @click="copyUsage(m)"
+                  class="shrink-0 px-2 py-1 rounded-md text-xs font-medium transition-all"
+                  :class="copiedUsage === m.name
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'">
+                  {{ copiedUsage === m.name ? '已复制!' : '复制' }}
+                </button>
               </div>
               <div v-if="m.error" class="text-red-400 text-xs bg-red-500/10 rounded-lg px-3 py-2">
                 {{ m.error }}

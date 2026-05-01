@@ -94,6 +94,9 @@ func applyDefaults(cfg *Config) {
 		"docker": {Enabled: true, Upstream: "https://registry-1.docker.io", CacheTTL: "0"},
 		"golang": {Enabled: true, Upstream: "https://proxy.golang.org", CacheTTL: "0"},
 		"cran":   {Enabled: true, Upstream: "https://cran.r-project.org", CacheTTL: "30d"},
+		"ghcr":   {Enabled: true, Upstream: "https://ghcr.io", CacheTTL: "0"},
+		"quay":   {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
+		"mcr":    {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
 	}
 	for name, def := range defaultMirrors {
 		if _, ok := cfg.Mirrors[name]; !ok {

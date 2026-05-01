@@ -24,6 +24,18 @@ mirrors:
     enabled: true
     upstream: "https://cran.r-project.org"
     cache_ttl: "30d"
+  ghcr:
+    enabled: true
+    upstream: "https://ghcr.io"
+    cache_ttl: "0"
+  quay:
+    enabled: true
+    upstream: "https://quay.io"
+    cache_ttl: "0"
+  mcr:
+    enabled: true
+    upstream: "https://mcr.microsoft.com"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true

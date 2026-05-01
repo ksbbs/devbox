@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,22 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	baseURL := d.publicURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+
+	usageMap := map[string]string{
+		"npm":    fmt.Sprintf("npm config set registry %s/npm", baseURL),
+		"pypi":   fmt.Sprintf("pip install <pkg> -i %s/pypi", baseURL),
+		"docker": fmt.Sprintf("配置 /etc/docker/daemon.json: registry-mirrors: [\"%s/docker\"]", baseURL),
+		"golang": fmt.Sprintf("go env -w GOPROXY=%s/golang,direct", baseURL),
+		"cran":   fmt.Sprintf("options(repos=c(CRAN=\"%s/cran\"))", baseURL),
+		"ghcr":   fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", baseURL),
+		"quay":   fmt.Sprintf("docker pull %s/quay/owner/image:tag", baseURL),
+		"mcr":    fmt.Sprintf("docker pull %s/mcr/owner/image:tag", baseURL),
+	}
+
 	mirrors := mirror.All()
 	statuses := make([]map[string]interface{}, 0)
 	for _, m := range mirrors {
@@ -36,14 +53,18 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 			errMsg = err.Error()
 		}
 		d.store.RecordHealthCheck(m.Name(), status, errMsg)
-		statuses = append(statuses, map[string]interface{}{
+		entry := map[string]interface{}{
 			"name":     m.Name(),
 			"pattern":  m.Pattern(),
 			"upstream": m.Upstream(),
 			"enabled":  m.IsEnabled(),
 			"status":   status,
 			"error":    errMsg,
-		})
+		}
+		if usage, ok := usageMap[m.Name()]; ok {
+			entry["usage"] = usage
+		}
+		statuses = append(statuses, entry)
 	}
 
 	writeJSON(w, statuses)

@@ -11,10 +11,13 @@
 | npm 镜像 | 代理 `https://registry.npmjs.org` |
 | pip 镜像 | 代理 `https://pypi.org/simple` |
 | Docker 镜像 | 代理 `https://registry-1.docker.io` |
+| GHCR 镜像 | 代理 `https://ghcr.io`（GitHub Container Registry） |
+| Quay 镜像 | 代理 `https://quay.io`（Red Hat Container Registry） |
+| MCR 镜像 | 代理 `https://mcr.microsoft.com`（Microsoft Container Registry） |
 | Go 模块镜像 | 代理 `https://proxy.golang.org` |
 | CRAN 镜像 | 代理 `https://cran.r-project.org` |
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
-| Web Dashboard | 状态总览、流量统计、配置管理 |
+| Web Dashboard | 状态总览、流量统计、配置管理、使用指南 |
 
 ## 快速部署
 
@@ -66,6 +69,18 @@ mirrors:
     enabled: true
     upstream: "https://cran.r-project.org"
     cache_ttl: "30d"
+  ghcr:
+    enabled: true
+    upstream: "https://ghcr.io"
+    cache_ttl: "0"
+  quay:
+    enabled: true
+    upstream: "https://quay.io"
+    cache_ttl: "0"
+  mcr:
+    enabled: true
+    upstream: "https://mcr.microsoft.com"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true
@@ -129,6 +144,24 @@ pip config set global.index-url http://<VPS>:8080/pypi
 ```
 
 然后重启 Docker：`systemctl restart docker`
+
+### GHCR (GitHub Container Registry) 加速
+
+```bash
+docker pull http://<VPS>:8080/ghcr/owner/image:tag
+```
+
+### Quay (Red Hat) 加速
+
+```bash
+docker pull http://<VPS>:8080/quay/owner/image:tag
+```
+
+### MCR (Microsoft Container Registry) 加速
+
+```bash
+docker pull http://<VPS>:8080/mcr/owner/image:tag
+```
 
 ### Go 模块加速
 
