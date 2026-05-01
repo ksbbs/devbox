@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"devbox/internal/config"
@@ -34,12 +35,19 @@ func (n *NpmMirror) ApplyConfig(cfg config.MirrorConfig) {
 
 func (n *NpmMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// strip "/npm" prefix, pass remaining path to upstream
 		r.URL.Path = r.URL.Path[len("/npm"):]
 		if r.URL.Path == "" || r.URL.Path == "/" {
 			r.URL.Path = "/"
 		}
-		cache.ProxyHTTP(w, r, n.upstream, n.cacheTTL)
+		// Metadata (JSON) uses ProxyHTTP with cache; tarballs use ProxyStream (streaming, no cache)
+		// npm tarball paths end with .tgz, .tar.gz, or contain /-//
+		if strings.Contains(r.URL.Path, ".tgz") ||
+			strings.Contains(r.URL.Path, ".tar.gz") ||
+			strings.Contains(r.URL.Path, "/-/") {
+			cache.ProxyStream(w, r, n.upstream)
+		} else {
+			cache.ProxyHTTP(w, r, n.upstream, n.cacheTTL)
+		}
 	}
 }
 

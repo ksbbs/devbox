@@ -186,7 +186,7 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build upstream request
+	// Build upstream request — preserve method, body, and all headers
 	target := upstream + "/v2/" + parts[1]
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
@@ -197,8 +197,10 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
-	// Copy request headers (Authorization for Bearer token retry)
 	for k, vv := range r.Header {
+		if k == "Host" {
+			continue // let Go set the correct Host for the upstream
+		}
 		for _, v := range vv {
 			upstreamReq.Header.Add(k, v)
 		}
@@ -206,24 +208,35 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(upstreamReq)
 	if err != nil {
+		log.Printf("[registry] upstream error: %v", err)
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
+	// Always include Docker v2 API version header in responses
+	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
+
 	// If 401, rewrite WWW-Authenticate to point to our /token endpoint
-	// so Docker client gets token through our proxy, not directly from upstream
 	if resp.StatusCode == http.StatusUnauthorized {
 		wwAuth := resp.Header.Get("Www-Authenticate")
 		if wwAuth != "" {
-			wwAuth = s.rewriteAuthHeader(wwAuth, r)
+			newAuth := s.rewriteAuthHeader(wwAuth, r)
+			log.Printf("[registry] rewrite auth: %s → %s", wwAuth, newAuth)
 			resp.Header.Del("Www-Authenticate")
-			resp.Header.Set("Www-Authenticate", wwAuth)
+			resp.Header.Set("Www-Authenticate", newAuth)
+		} else {
+			log.Printf("[registry] 401 without Www-Authenticate header")
 		}
 	}
 
-	// Copy response headers
+	log.Printf("[registry] %s %s → %s %d", r.Method, path, target, resp.StatusCode)
+
+	// Copy response headers (excluding any we've already set)
 	for k, vv := range resp.Header {
+		if k == "Docker-Distribution-API-Version" {
+			continue // we already set this above
+		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
@@ -233,38 +246,22 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) rewriteAuthHeader(authHeader string, r *http.Request) string {
-	// Replace realm URL with our own /token endpoint
-	// e.g. realm="https://ghcr.io/token" → realm="https://dev.n0va.qzz.io/token"
+	// Simple string replacement approach (same as hubproxy)
+	// Replace all upstream auth URLs with our proxy's /token endpoint
 	proxyHost := s.cfg.Server.PublicURL
 	if proxyHost == "" {
 		proxyHost = "http://" + r.Host
 	}
-	// Strip trailing slash
 	proxyHost = strings.TrimRight(proxyHost, "/")
 
-	// Find realm= in the header and replace it
-	// Format: Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="..."
-	idx := strings.Index(authHeader, "realm=")
-	if idx == -1 {
-		return authHeader
+	replacements := map[string]string{
+		"https://auth.docker.io":   proxyHost,
+		"https://ghcr.io":         proxyHost,
+		"https://quay.io":         proxyHost,
+		"https://mcr.microsoft.com": proxyHost,
 	}
-	// Find the end of realm value (quote or comma)
-	start := idx + 6 // skip "realm="
-	if start < len(authHeader) && authHeader[start] == '"' {
-		// realm="..." format
-		end := strings.Index(authHeader[start+1:], "\"")
-		if end != -1 {
-			oldRealm := authHeader[start+1 : start+1+end]
-			return strings.Replace(authHeader, oldRealm, proxyHost+"/token", 1)
-		}
-	} else {
-		// realm=... format (no quotes)
-		end := strings.Index(authHeader[start:], ",")
-		if end == -1 {
-			end = len(authHeader) - start
-		}
-		oldRealm := authHeader[start : start+end]
-		return strings.Replace(authHeader, oldRealm, proxyHost+"/token", 1)
+	for old, new := range replacements {
+		authHeader = strings.ReplaceAll(authHeader, old, new)
 	}
 	return authHeader
 }
@@ -291,16 +288,28 @@ func (s *Server) tokenAuthHandler(w http.ResponseWriter, r *http.Request) {
 	// Forward the full query string
 	targetURL := target + "?" + r.URL.RawQuery
 
+	log.Printf("[token] service=%s → %s", service, targetURL)
+
 	resp, err := http.Get(targetURL)
 	if err != nil {
+		log.Printf("[token] upstream error: %v", err)
 		http.Error(w, "auth server error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
+	log.Printf("[token] upstream responded: %d", resp.StatusCode)
+
+	// Also rewrite WWW-Authenticate in token response (some auth servers include it)
 	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
+		if k == "Www-Authenticate" || k == "WWW-Authenticate" {
+			for _, v := range vv {
+				w.Header().Add(k, s.rewriteAuthHeader(v, r))
+			}
+		} else {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
 		}
 	}
 	w.WriteHeader(resp.StatusCode)

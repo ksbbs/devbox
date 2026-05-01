@@ -5,6 +5,7 @@ import { searchMirrors, getPublicConfig } from '../api/client'
 const query = ref('')
 const results = ref<any[]>([])
 const loading = ref(false)
+const errorMsg = ref('')
 const publicUrl = ref('')
 const selectedRegistry = ref('')
 const copiedName = ref<string | null>(null)
@@ -27,10 +28,12 @@ const registryColors: Record<string, string> = {
 async function doSearch() {
   if (!query.value.trim()) return
   loading.value = true
+  errorMsg.value = ''
   try {
     results.value = await searchMirrors(query.value, selectedRegistry.value)
-  } catch {
+  } catch (e: any) {
     results.value = []
+    errorMsg.value = e.response?.statusText || '搜索失败，请稍后重试'
   }
   loading.value = false
 }
@@ -56,6 +59,7 @@ function copyInstall(name: string, registry: string) {
         </span>
       </h1>
       <p class="text-slate-400">搜索 npm、Docker Hub、PyPI 镜像包</p>
+      <p v-if="selectedRegistry === 'pypi'" class="text-slate-500 text-xs mt-1">PyPI 仅支持精确包名搜索</p>
     </div>
 
     <!-- 搜索栏 -->
@@ -72,9 +76,9 @@ function copyInstall(name: string, registry: string) {
         </div>
         <select
           v-model="selectedRegistry"
-          class="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-slate-300 focus:border-sky-500/50 focus:outline-none"
+          class="registry-select px-4 py-3 rounded-xl bg-slate-800 border border-white/10 text-slate-200 focus:border-sky-500/50 focus:outline-none appearance-none cursor-pointer"
         >
-          <option v-for="opt in registryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          <option v-for="opt in registryOptions" :key="opt.value" :value="opt.value" class="bg-slate-800 text-slate-200">{{ opt.label }}</option>
         </select>
         <button
           @click="doSearch"
@@ -84,6 +88,11 @@ function copyInstall(name: string, registry: string) {
           {{ loading ? '搜索中...' : '搜索' }}
         </button>
       </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div v-if="errorMsg" class="text-center text-red-400 py-4 bg-red-500/10 rounded-xl mb-4">
+      {{ errorMsg }}
     </div>
 
     <!-- 搜索结果 -->
@@ -109,7 +118,7 @@ function copyInstall(name: string, registry: string) {
       </div>
     </div>
 
-    <div v-if="!results.length && !loading && query" class="text-center text-slate-500 py-12">
+    <div v-if="!results.length && !loading && !errorMsg && query" class="text-center text-slate-500 py-12">
       搜索结果为空，请尝试其他关键词
     </div>
   </div>
@@ -125,5 +134,11 @@ function copyInstall(name: string, registry: string) {
 .search-card:hover {
   border-color: var(--color, rgba(56, 189, 248, 0.3));
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.registry-select option {
+  background: #1e293b;
+  color: #cbd5e1;
+  padding: 8px;
 }
 </style>

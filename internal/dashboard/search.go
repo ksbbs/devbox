@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type SearchHandler struct{}
@@ -29,7 +30,6 @@ func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	var results []SearchResult
 
-	// Search npm registry
 	if registry == "" || registry == "npm" {
 		npmResults, err := searchNpm(query)
 		if err == nil {
@@ -37,7 +37,6 @@ func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Search Docker Hub
 	if registry == "" || registry == "docker" {
 		dockerResults, err := searchDocker(query)
 		if err == nil {
@@ -45,7 +44,6 @@ func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Search PyPI
 	if registry == "" || registry == "pypi" {
 		pypiResults, err := searchPyPI(query)
 		if err == nil {
@@ -57,7 +55,7 @@ func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchNpm(query string) ([]SearchResult, error) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=10", query))
+	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=10", url.QueryEscape(query)))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +66,6 @@ func searchNpm(query string) ([]SearchResult, error) {
 			Package struct {
 				Name string `json:"name"`
 				Desc string `json:"description"`
-				Link string `json:"links"`
 			} `json:"package"`
 		} `json:"objects"`
 	}
@@ -90,7 +87,7 @@ func searchNpm(query string) ([]SearchResult, error) {
 }
 
 func searchDocker(query string) ([]SearchResult, error) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=10", query))
+	resp, err := http.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=10", url.QueryEscape(query)))
 	if err != nil {
 		return nil, err
 	}
@@ -120,36 +117,36 @@ func searchDocker(query string) ([]SearchResult, error) {
 }
 
 func searchPyPI(query string) ([]SearchResult, error) {
-	// PyPI JSON API for package search
-	resp, err := http.Get(fmt.Sprintf("https://pypi.org/search/?q=%s&format=json", query))
+	// PyPI search API is deprecated (returns Cloudflare HTML).
+	// Use the JSON API for exact package name lookup instead.
+	resp, err := http.Get(fmt.Sprintf("https://pypi.org/pypi/%s/json", url.QueryEscape(query)))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// PyPI search API may not return JSON reliably, try simple package name lookup
-	// Use the PyPI simple index approach as fallback
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("pypi search returned %d", resp.StatusCode)
+		// Package not found, return empty results
+		return nil, nil
 	}
 
-	// Try parsing as JSON
-	var packages []struct {
-		Name string `json:"name"`
-		Desc string `json:"summary"`
+	var data struct {
+		Info struct {
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+		} `json:"info"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&packages); err != nil {
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
 
-	results := make([]SearchResult, 0, len(packages))
-	for _, p := range packages {
-		results = append(results, SearchResult{
+	return []SearchResult{
+		{
 			Registry: "pypi",
-			Name:     p.Name,
-			Desc:     p.Desc,
-			URL:      "https://pypi.org/project/" + p.Name,
-		})
-	}
-	return results, nil
+			Name:     data.Info.Name,
+			Desc:     data.Info.Summary,
+			URL:      "https://pypi.org/project/" + data.Info.Name,
+		},
+	}, nil
 }
