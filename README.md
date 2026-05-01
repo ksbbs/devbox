@@ -198,34 +198,62 @@ pip install flask -i http://<VPS>:8080/pypi
 pip config set global.index-url http://<VPS>:8080/pypi
 ```
 
-### Docker 镜像加速
+### Docker Hub 镜像加速
+
+Docker Hub 使用 `registry-mirrors` 配置（Docker 原生支持）：
 
 编辑 `/etc/docker/daemon.json`：
 
 ```json
 {
-  "registry-mirrors": ["http://<VPS>:8080/docker"]
+  "registry-mirrors": ["https://dev.example.com/docker"]
 }
 ```
 
 然后重启 Docker：`systemctl restart docker`
 
+> 注意：仅 Docker Hub 支持 `registry-mirrors`，其他 Registry 需用 `docker pull` 直接拉取。
+
 ### GHCR (GitHub Container Registry) 加速
 
 ```bash
-docker pull http://<VPS>:8080/ghcr/owner/image:tag
+docker pull dev.example.com/ghcr/owner/image:tag
+
+# 例如拉取 DevBox 自身
+docker pull dev.example.com/ghcr/ksbbs/devbox:latest
 ```
 
-### Quay (Red Hat) 加速
+> 不需要加 `https://`，Docker 客户端会自动走 HTTPS。如果未配置 SSL，需加 `http://` 前缀并设置 Docker insecure registry。
+
+### Quay (Red Hat Container Registry) 加速
 
 ```bash
-docker pull http://<VPS>:8080/quay/owner/image:tag
+docker pull dev.example.com/quay/owner/image:tag
+
+# 例如
+docker pull dev.example.com/quay/prometheus/prometheus:latest
 ```
 
 ### MCR (Microsoft Container Registry) 加速
 
 ```bash
-docker pull http://<VPS>:8080/mcr/owner/image:tag
+docker pull dev.example.com/mcr/owner/image:tag
+
+# 例如
+docker pull dev.example.com/mcr/dotnet/sdk:8.0
+```
+
+### Docker Registry 通用说明
+
+GHCR/Quay/MCR 的拉取原理：Docker 发送 `/v2/{registry}/...` 请求到你的域名，DevBox 根据 `{registry}` 段代理到对应上游。
+
+如果未配置 SSL（仅 HTTP），需在 `/etc/docker/daemon.json` 中添加 insecure registry：
+
+```json
+{
+  "registry-mirrors": ["https://dev.example.com/docker"],
+  "insecure-registries": ["dev.example.com"]
+}
 ```
 
 ### GitHub API 加速

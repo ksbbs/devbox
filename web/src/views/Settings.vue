@@ -12,12 +12,12 @@ onMounted(async () => {
 })
 
 const features = [
-  { name: 'API Proxy Gateway', status: 'planned', icon: '◈' },
-  { name: 'Docker Compose Templates', status: 'planned', icon: '◉' },
-  { name: 'Health Monitoring', status: 'planned', icon: '◐' },
-  { name: 'Traffic Analytics', status: 'planned', icon: '◎' },
-  { name: 'Multi-User Support', status: 'planned', icon: '◑' },
-  { name: 'Plugin System', status: 'planned', icon: '◒' }
+  { name: 'Traffic Analytics', status: 'stable', icon: '◎' },
+  { name: 'GitHub API Proxy', status: 'stable', icon: '◆' },
+  { name: 'Web UI Auth', status: 'stable', icon: '▣' },
+  { name: 'PWA Support', status: 'planned', icon: '◈' },
+  { name: 'Auto Update Notify', status: 'planned', icon: '◉' },
+  { name: 'Plugin System', status: 'planned', icon: '◐' }
 ]
 
 const statusColors: Record<string, string> = {

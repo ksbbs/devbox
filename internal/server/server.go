@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"devbox/internal/config"
@@ -85,6 +86,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 
+	// Docker v2 registry API routes
+	// Allows: docker pull <host>/ghcr/owner/image:tag
+	// Docker sends /v2/ ping first, then /v2/{registry}/... requests
+	mux.HandleFunc("/v2/", s.registryV2Handler)
+
 	// Frontend static files from directory
 	if s.frontDir != "" {
 		if _, err := os.Stat(s.frontDir); err == nil {
@@ -112,6 +118,41 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
 	log.Printf("DevBox starting on %s", addr)
 	return http.ListenAndServe(addr, logMiddleware(mux, s.cfg.Logging.AccessLog))
+}
+
+func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// Docker v2 API ping: /v2/ → return API version header
+	if path == "/v2/" || path == "/v2" {
+		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// /v2/{registry}/... → proxy to corresponding upstream registry
+	// e.g. /v2/ghcr/ksbbs/devbox/manifests/latest → ghcr.io/v2/ksbbs/devbox/manifests/latest
+	registryMap := map[string]string{
+		"docker": "https://registry-1.docker.io",
+		"ghcr":   "https://ghcr.io",
+		"quay":   "https://quay.io",
+		"mcr":    "https://mcr.microsoft.com",
+	}
+
+	// Extract registry name from path: /v2/{registry}/...
+	rest := strings.TrimPrefix(path, "/v2/")
+	parts := strings.SplitN(rest, "/", 2)
+	registryName := parts[0]
+
+	upstream, ok := registryMap[registryName]
+	if !ok {
+		http.Error(w, "unknown registry", http.StatusNotFound)
+		return
+	}
+
+	// Forward auth headers for registry token auth
+	r.URL.Path = "/v2/" + rest
+	s.cache.ProxyStream(w, r, upstream)
 }
 
 func (s *Server) wrapWithStats(name string, handler http.HandlerFunc) http.HandlerFunc {
