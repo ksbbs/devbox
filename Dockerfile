@@ -1,12 +1,12 @@
-# Stage 1: Build frontend
-FROM node:20-alpine AS frontend
+# Stage 1: Build frontend (amd64 only, avoid slow QEMU emulation for npm)
+FROM --platform=linux/amd64 node:20-alpine AS frontend
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ .
 RUN npm run build
 
-# Stage 2: Build Go binary (pure Go, no CGO needed)
+# Stage 2: Build Go binary per-platform (pure Go cross-compile is fast)
 FROM golang:1.25-alpine AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -23,4 +23,4 @@ COPY configs/devbox.yaml /etc/devbox/default.yaml
 VOLUME /data
 EXPOSE 8080
 ENTRYPOINT ["devbox"]
-CMD ["-c", "/etc/devbox/default.yaml", "-f", "/usr/share/devbox/frontend"]
+CMD ["-c", "/etc/devbox/default.yaml", "-f", "/usr/share/devbox/frontend"
