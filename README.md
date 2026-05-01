@@ -2,6 +2,8 @@
 
 国内开发者自部署在 VPS 上的 Docker 容器工具，解决包管理器镜像加速和 GitHub clone 慢的核心痛点。
 
+![Preview](view.png)
+
 ## 功能
 
 | 功能 | 说明 |
@@ -41,6 +43,7 @@ docker run -d -p 8080:8080 -v devbox-data:/data \
 server:
   port: 8080
   auth_token: ""                # Dashboard 鉴权 token，空则不鉴权
+  public_url: ""                # 公网访问地址，如 https://dev.example.com
 
 mirrors:
   npm:
@@ -86,6 +89,7 @@ logging:
 ```bash
 DEVBOX_SERVER_PORT=9090
 DEVBOX_AUTH_TOKEN=my-secret-token
+DEVBOX_PUBLIC_URL=https://dev.example.com
 DEVBOX_CACHE_DIR=/data/cache
 DEVBOX_CACHE_MAX_SIZE=10GB
 DEVBOX_MIRROR_NPM_UPSTREAM=https://registry.npmmirror.com

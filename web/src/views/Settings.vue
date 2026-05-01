@@ -1,4 +1,16 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { getPublicConfig } from '../api/client'
+
+const publicUrl = ref('')
+
+onMounted(async () => {
+  try {
+    const config = await getPublicConfig()
+    publicUrl.value = config.publicUrl || ''
+  } catch { /* ignore */ }
+})
+
 const features = [
   { name: 'API Proxy Gateway', status: 'planned', icon: '◈' },
   { name: 'Docker Compose Templates', status: 'planned', icon: '◉' },
@@ -49,6 +61,7 @@ const statusText: Record<string, string> = {
             <div class="text-2xl font-bold text-white">DevBox</div>
             <div class="text-slate-400">v1.0.0</div>
             <div class="text-xs text-emerald-400 mt-1">✓ 运行正常</div>
+              <div v-if="publicUrl" class="text-xs text-sky-400 mt-1 font-mono">{{ publicUrl }}</div>
           </div>
         </div>
       </div>
@@ -90,6 +103,10 @@ const statusText: Record<string, string> = {
           <div class="flex justify-between items-center py-2 border-b border-white/5">
             <span class="text-slate-400">部署方式</span>
             <span class="text-slate-200 font-mono">Docker</span>
+          </div>
+          <div v-if="publicUrl" class="flex justify-between items-center py-2 border-b border-white/5">
+            <span class="text-slate-400">访问地址</span>
+            <span class="text-sky-400 font-mono">{{ publicUrl }}</span>
           </div>
           <div class="flex justify-between items-center py-2">
             <span class="text-slate-400">源码</span>

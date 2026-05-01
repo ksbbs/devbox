@@ -10,12 +10,13 @@ import (
 )
 
 type Dashboard struct {
-	store    *store.Store
+	store     *store.Store
 	authToken string
+	publicURL string
 }
 
-func New(st *store.Store, authToken string) *Dashboard {
-	return &Dashboard{store: st, authToken: authToken}
+func New(st *store.Store, authToken string, publicURL string) *Dashboard {
+	return &Dashboard{store: st, authToken: authToken, publicURL: publicURL}
 }
 
 func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +128,10 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (d *Dashboard) PublicConfigHandler(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]string{"publicUrl": d.publicURL})
 }
 
 func (d *Dashboard) LoginHandler(w http.ResponseWriter, r *http.Request) {

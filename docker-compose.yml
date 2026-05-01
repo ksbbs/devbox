@@ -9,6 +9,7 @@ services:
       - devbox-data:/data
     environment:
       - DEVBOX_AUTH_TOKEN=${AUTH_TOKEN:-}
+      - DEVBOX_PUBLIC_URL=${PUBLIC_URL:-}
     command:
       - "-c"
       - "/etc/devbox/default.yaml"

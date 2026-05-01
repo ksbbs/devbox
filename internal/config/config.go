@@ -21,6 +21,7 @@ type Config struct {
 type ServerConfig struct {
 	Port      int    `yaml:"port"`
 	AuthToken string `yaml:"auth_token"`
+	PublicURL string `yaml:"public_url"`
 }
 
 type MirrorConfig struct {
@@ -117,6 +118,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("DEVBOX_AUTH_TOKEN"); v != "" {
 		cfg.Server.AuthToken = v
+	}
+	if v := os.Getenv("DEVBOX_PUBLIC_URL"); v != "" {
+		cfg.Server.PublicURL = v
 	}
 	if v := os.Getenv("DEVBOX_CACHE_DIR"); v != "" {
 		cfg.Cache.Dir = v

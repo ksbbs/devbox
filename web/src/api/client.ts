@@ -32,3 +32,7 @@ export async function getMirrorConfig() {
 export async function updateMirrorConfig(name: string, enabled: boolean, upstream?: string) {
   return api.put('/config/mirrors', { name, enabled, upstream }).then(r => r.data)
 }
+
+export async function getPublicConfig() {
+  return api.get('/config/public').then(r => r.data)
+}

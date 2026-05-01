@@ -1,32 +1,44 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { getPublicConfig } from '../api/client'
 
-const commands = [
+const publicUrl = ref('')
+
+onMounted(async () => {
+  try {
+    const config = await getPublicConfig()
+    publicUrl.value = config.publicUrl || window.location.origin
+  } catch {
+    publicUrl.value = window.location.origin
+  }
+})
+
+const commands = computed(() => [
   {
     title: 'GitHub Clone',
     desc: '克隆 GitHub 仓库',
-    cmd: 'git clone http://your-vps:8080/gh/user/repo',
+    cmd: `git clone ${publicUrl.value}/gh/user/repo`,
     icon: '◆'
   },
   {
     title: 'GitLab Clone',
     desc: '克隆 GitLab 仓库',
-    cmd: 'git clone http://your-vps:8080/gl/user/repo',
+    cmd: `git clone ${publicUrl.value}/gl/user/repo`,
     icon: '◇'
   },
   {
     title: 'Archive 下载',
     desc: '下载仓库压缩包',
-    cmd: 'curl http://your-vps:8080/gh/user/repo/archive/main.zip -o main.zip',
+    cmd: `curl ${publicUrl.value}/gh/user/repo/archive/main.zip -o main.zip`,
     icon: '▣'
   },
   {
     title: 'Raw 文件',
     desc: '获取原始文件内容',
-    cmd: 'curl http://your-vps:8080/gh/user/repo/raw/branch/file.txt',
+    cmd: `curl ${publicUrl.value}/gh/user/repo/raw/branch/file.txt`,
     icon: '▤'
   }
-]
+])
 
 const copied = ref<number | null>(null)
 

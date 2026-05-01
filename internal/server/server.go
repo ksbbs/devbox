@@ -48,7 +48,7 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 		}
 	}
 
-	dash := dashboard.New(st, cfg.Server.AuthToken)
+	dash := dashboard.New(st, cfg.Server.AuthToken, cfg.Server.PublicURL)
 
 	return &Server{
 		cfg:      cfg,
@@ -81,6 +81,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/status", s.dash.StatusHandler)
 	mux.HandleFunc("/api/stats/traffic", s.dash.TrafficHandler)
 	mux.HandleFunc("/api/config/mirrors", s.dash.MirrorConfigHandler)
+	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 
 	// Frontend static files from directory

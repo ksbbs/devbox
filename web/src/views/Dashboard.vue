@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { getStatus, getTraffic } from '../api/client'
+import { getStatus, getTraffic, getPublicConfig } from '../api/client'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
 const traffic = ref<any[]>([])
+const publicUrl = ref('')
 
 const stats = computed(() => {
   const total = mirrors.value.length
@@ -20,6 +21,10 @@ onMounted(async () => {
   } catch (e) {
     mirrors.value = []
   }
+  try {
+    const config = await getPublicConfig()
+    publicUrl.value = config.publicUrl || ''
+  } catch { /* ignore */ }
   loading.value = false
 })
 </script>
@@ -34,6 +39,7 @@ onMounted(async () => {
         </span>
       </h1>
       <p class="text-slate-400">镜像加速服务状态实时监控</p>
+      <p v-if="publicUrl" class="text-sm text-sky-400/80 mt-1 font-mono">{{ publicUrl }}</p>
     </div>
 
     <!-- 统计卡片 -->

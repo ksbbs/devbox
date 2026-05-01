@@ -1,6 +1,7 @@
 server:
   port: 8080
   auth_token: ""
+  public_url: ""                # 公网访问地址，如 https://dev.example.com
 
 mirrors:
   npm:
