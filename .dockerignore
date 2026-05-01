@@ -1,6 +1,6 @@
-devbox
-devbox.exe
-*.exe
+/devbox
+/devbox.exe
+/*.exe
 .git
 .github
 .vscode
