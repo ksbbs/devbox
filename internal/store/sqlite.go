@@ -15,7 +15,7 @@ type Store struct {
 
 func New(path string) (*Store, error) {
 	os.MkdirAll(path[:len(path)-len("/devbox.db")], 0755)
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
