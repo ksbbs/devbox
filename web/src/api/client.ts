@@ -82,3 +82,9 @@ export async function updateMirrorConfig(name: string, enabled: boolean, upstrea
 export async function getPublicConfig() {
   return api.get('/config/public').then(r => r.data)
 }
+
+export async function searchMirrors(q: string, registry?: string) {
+  const params: Record<string, string> = { q }
+  if (registry) params.registry = registry
+  return api.get('/search', { params }).then(r => r.data)
+}

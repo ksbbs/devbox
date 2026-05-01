@@ -10,14 +10,18 @@
 |------|------|
 | npm 镜像 | 代理 `https://registry.npmjs.org` |
 | pip 镜像 | 代理 `https://pypi.org/simple` |
-| Docker 镜像 | 代理 `https://registry-1.docker.io` |
+| Docker 镜像 | 代理 `https://registry-1.docker.io`（含 v2 token 认证代理） |
 | GHCR 镜像 | 代理 `https://ghcr.io`（GitHub Container Registry） |
 | Quay 镜像 | 代理 `https://quay.io`（Red Hat Container Registry） |
 | MCR 镜像 | 代理 `https://mcr.microsoft.com`（Microsoft Container Registry） |
 | Go 模块镜像 | 代理 `https://proxy.golang.org` |
 | CRAN 镜像 | 代理 `https://cran.r-project.org` |
+| HuggingFace 加速 | 代理 `https://huggingface.co` 模型文件下载 |
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
 | GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
+| Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
+| 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI 包 |
+| IP 限流 | 令牌桶限流防滥用，白名单免限速 |
 | Web Dashboard | 状态总览、流量图表、访问日志、配置管理、使用指南 |
 | 日志自动清除 | 流量日志保留可配置天数（默认 30 天），过期自动清理 |
 
@@ -127,12 +131,22 @@ mirrors:
     enabled: true
     upstream: "https://api.github.com"
     cache_ttl: "0"
+  hf:
+    enabled: true
+    upstream: "https://huggingface.co"
+    cache_ttl: "7d"
 
 gitproxy:
   enabled: true
   github_upstream: "https://github.com"
   gitlab_upstream: "https://gitlab.com"
   cache_ttl: "7d"
+
+rate_limit:
+  enabled: false               # 启用 IP 限流
+  rate: 500                    # 每个 IP 每时段最大请求数
+  interval: "3h"               # 时段长度
+  whitelist: []                # 白名单 IP（免限速）
 
 cache:
   dir: "/data/cache"
@@ -157,6 +171,9 @@ DEVBOX_CACHE_MAX_SIZE=10GB
 DEVBOX_MIRROR_NPM_UPSTREAM=https://registry.npmmirror.com
 DEVBOX_MIRROR_NPM_ENABLED=false
 DEVBOX_LOGGING_RETENTION_DAYS=90
+DEVBOX_RATE_LIMIT_ENABLED=true
+DEVBOX_RATE_LIMIT_RATE=1000
+DEVBOX_RATE_LIMIT_INTERVAL=3h
 ```
 
 ### Web UI 鉴权
@@ -268,6 +285,18 @@ curl http://<VPS>:8080/ghapi/repos/owner/repo
 # 获取用户信息
 curl http://<VPS>:8080/ghapi/users/username
 ```
+
+### HuggingFace 模型加速
+
+```bash
+# 设置 HF_ENDPOINT 环境变量
+export HF_ENDPOINT=http://<VPS>:8080/hf
+
+# 然后正常使用 huggingface-cli 或 transformers
+huggingface-cli download model/name
+```
+
+> 也可在 Python 中设置：`os.environ["HF_ENDPOINT"] = "http://<VPS>:8080/hf"`
 
 ### Go 模块加速
 

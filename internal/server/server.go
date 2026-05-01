@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -12,16 +13,19 @@ import (
 	"devbox/internal/dashboard"
 	"devbox/internal/gitproxy"
 	"devbox/internal/mirror"
+	"devbox/internal/ratelimit"
 	"devbox/internal/store"
 )
 
 type Server struct {
-	cfg      *config.Config
-	cache    *mirror.Cache
-	gitProxy *gitproxy.GitProxy
-	dash     *dashboard.Dashboard
-	store    *store.Store
-	frontDir string
+	cfg        *config.Config
+	cache      *mirror.Cache
+	gitProxy   *gitproxy.GitProxy
+	dash       *dashboard.Dashboard
+	store      *store.Store
+	limiter    *ratelimit.Limiter
+	search     *dashboard.SearchHandler
+	frontDir   string
 }
 
 func New(cfg *config.Config, frontDir string) (*Server, error) {
@@ -51,12 +55,21 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 
 	dash := dashboard.New(st, cfg.Server.AuthToken, cfg.Server.PublicURL)
 
+	var limiter *ratelimit.Limiter
+	if cfg.RateLimit.Enabled {
+		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist)
+	}
+
+	search := dashboard.NewSearchHandler()
+
 	return &Server{
 		cfg:      cfg,
 		cache:    cache,
 		gitProxy: gp,
 		dash:     dash,
 		store:    st,
+		limiter:  limiter,
+		search:   search,
 		frontDir: frontDir,
 	}, nil
 }
@@ -86,10 +99,18 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 
+	// Mirror search API
+	mux.HandleFunc("/api/search", s.search.Search)
+
 	// Docker v2 registry API routes
 	// Allows: docker pull <host>/ghcr/owner/image:tag
 	// Docker sends /v2/ ping first, then /v2/{registry}/... requests
 	mux.HandleFunc("/v2/", s.registryV2Handler)
+
+	// Docker v2 token auth proxy — intercept token requests
+	// When upstream returns 401 + WWW-Authenticate, Docker needs a token
+	// We proxy the token request so Docker doesn't need direct upstream access
+	mux.HandleFunc("/token", s.tokenAuthHandler)
 
 	// Frontend static files from directory
 	if s.frontDir != "" {
@@ -118,9 +139,18 @@ func (s *Server) Start() error {
 	// Start traffic log cleanup timer
 	go s.trafficCleanup()
 
+	// Start rate limiter cleanup timer
+	go s.rateLimitCleanup()
+
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
 	log.Printf("DevBox starting on %s", addr)
-	return http.ListenAndServe(addr, logMiddleware(mux, s.cfg.Logging.AccessLog))
+
+	handler := logMiddleware(mux, s.cfg.Logging.AccessLog)
+	if s.limiter != nil {
+		handler = s.rateLimitMiddleware(handler)
+		log.Printf("rate limiting enabled: %d requests per %s", s.cfg.RateLimit.Rate, s.cfg.RateLimit.Interval)
+	}
+	return http.ListenAndServe(addr, handler)
 }
 
 func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +164,6 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// /v2/{registry}/... → proxy to corresponding upstream registry
-	// e.g. /v2/ghcr/ksbbs/devbox/manifests/latest → ghcr.io/v2/ksbbs/devbox/manifests/latest
 	registryMap := map[string]string{
 		"docker": "https://registry-1.docker.io",
 		"ghcr":   "https://ghcr.io",
@@ -157,9 +186,125 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Strip registry name prefix: /v2/ghcr/ksbbs/devbox/... → /v2/ksbbs/devbox/...
-	r.URL.Path = "/v2/" + parts[1]
-	s.cache.ProxyStream(w, r, upstream)
+	// Build upstream request
+	target := upstream + "/v2/" + parts[1]
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+
+	upstreamReq, err := http.NewRequest(r.Method, target, r.Body)
+	if err != nil {
+		http.Error(w, "request error", http.StatusInternalServerError)
+		return
+	}
+	// Copy request headers (Authorization for Bearer token retry)
+	for k, vv := range r.Header {
+		for _, v := range vv {
+			upstreamReq.Header.Add(k, v)
+		}
+	}
+
+	resp, err := http.DefaultClient.Do(upstreamReq)
+	if err != nil {
+		http.Error(w, "upstream error", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// If 401, rewrite WWW-Authenticate to point to our /token endpoint
+	// so Docker client gets token through our proxy, not directly from upstream
+	if resp.StatusCode == http.StatusUnauthorized {
+		wwAuth := resp.Header.Get("Www-Authenticate")
+		if wwAuth != "" {
+			wwAuth = s.rewriteAuthHeader(wwAuth, r)
+			resp.Header.Del("Www-Authenticate")
+			resp.Header.Set("Www-Authenticate", wwAuth)
+		}
+	}
+
+	// Copy response headers
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func (s *Server) rewriteAuthHeader(authHeader string, r *http.Request) string {
+	// Replace realm URL with our own /token endpoint
+	// e.g. realm="https://ghcr.io/token" → realm="https://dev.n0va.qzz.io/token"
+	proxyHost := s.cfg.Server.PublicURL
+	if proxyHost == "" {
+		proxyHost = "http://" + r.Host
+	}
+	// Strip trailing slash
+	proxyHost = strings.TrimRight(proxyHost, "/")
+
+	// Find realm= in the header and replace it
+	// Format: Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="..."
+	idx := strings.Index(authHeader, "realm=")
+	if idx == -1 {
+		return authHeader
+	}
+	// Find the end of realm value (quote or comma)
+	start := idx + 6 // skip "realm="
+	if start < len(authHeader) && authHeader[start] == '"' {
+		// realm="..." format
+		end := strings.Index(authHeader[start+1:], "\"")
+		if end != -1 {
+			oldRealm := authHeader[start+1 : start+1+end]
+			return strings.Replace(authHeader, oldRealm, proxyHost+"/token", 1)
+		}
+	} else {
+		// realm=... format (no quotes)
+		end := strings.Index(authHeader[start:], ",")
+		if end == -1 {
+			end = len(authHeader) - start
+		}
+		oldRealm := authHeader[start : start+end]
+		return strings.Replace(authHeader, oldRealm, proxyHost+"/token", 1)
+	}
+	return authHeader
+}
+
+func (s *Server) tokenAuthHandler(w http.ResponseWriter, r *http.Request) {
+	// Proxy Docker v2 token requests to upstream auth servers
+	// Docker sends: GET /token?service=ghcr.io&scope=repository:ksbbs/devbox:pull
+	service := r.URL.Query().Get("service")
+
+	authMap := map[string]string{
+		"docker.io":            "https://auth.docker.io/token",
+		"registry.docker.io":   "https://auth.docker.io/token",
+		"ghcr.io":              "https://ghcr.io/token",
+		"quay.io":              "https://quay.io/v2/auth",
+		"mcr.microsoft.com":    "https://mcr.microsoft.com/v2/auth",
+	}
+
+	target, ok := authMap[service]
+	if !ok {
+		// Default: try Docker Hub auth
+		target = "https://auth.docker.io/token"
+	}
+
+	// Forward the full query string
+	targetURL := target + "?" + r.URL.RawQuery
+
+	resp, err := http.Get(targetURL)
+	if err != nil {
+		http.Error(w, "auth server error", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) wrapWithStats(name string, handler http.HandlerFunc) http.HandlerFunc {
@@ -228,4 +373,34 @@ func logMiddleware(next http.Handler, accessLog bool) http.Handler {
 			r.Method, r.URL.Path, r.RemoteAddr,
 			time.Since(start).Milliseconds())
 	})
+}
+
+func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip rate limiting for dashboard API and frontend
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
+			strings.HasPrefix(path, "/token") || path == "/" ||
+			strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js") ||
+			strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !s.limiter.Allow(r) {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Start cleanup goroutines for rate limiter expired buckets
+func (s *Server) rateLimitCleanup() {
+	if s.limiter == nil {
+		return
+	}
+	ticker := time.NewTicker(10 * time.Minute)
+	for range ticker.C {
+		s.limiter.Cleanup()
+	}
 }

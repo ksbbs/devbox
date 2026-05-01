@@ -40,6 +40,10 @@ mirrors:
     enabled: true
     upstream: "https://api.github.com"
     cache_ttl: "0"
+  hf:
+    enabled: true
+    upstream: "https://huggingface.co"
+    cache_ttl: "7d"
 
 gitproxy:
   enabled: true
@@ -55,3 +59,9 @@ logging:
   level: "info"
   access_log: true
   retention_days: 30              # 流量日志保留天数，过期自动清除
+
+rate_limit:
+  enabled: false                  # 启用 IP 限流
+  rate: 500                       # 每个 IP 每时段最大请求数
+  interval: "3h"                  # 时段长度
+  whitelist: []                   # 白名单 IP（免限速）

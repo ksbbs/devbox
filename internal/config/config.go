@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig            `yaml:"server"`
-	Mirrors  map[string]MirrorConfig `yaml:"mirrors"`
-	GitProxy GitProxyConfig          `yaml:"gitproxy"`
-	Cache    CacheConfig             `yaml:"cache"`
-	Logging  LoggingConfig           `yaml:"logging"`
+	Server    ServerConfig            `yaml:"server"`
+	Mirrors   map[string]MirrorConfig `yaml:"mirrors"`
+	GitProxy  GitProxyConfig          `yaml:"gitproxy"`
+	Cache     CacheConfig             `yaml:"cache"`
+	Logging   LoggingConfig           `yaml:"logging"`
+	RateLimit RateLimitConfig         `yaml:"rate_limit"`
 }
 
 type ServerConfig struct {
@@ -49,6 +50,14 @@ type LoggingConfig struct {
 	Level         string `yaml:"level"`
 	AccessLog     bool   `yaml:"access_log"`
 	RetentionDays int    `yaml:"retention_days"`
+}
+
+type RateLimitConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	Rate         int           `yaml:"rate"`       // max requests per interval
+	Interval     string        `yaml:"interval"`   // e.g. "3h"
+	IntervalDur  time.Duration // parsed
+	Whitelist    []string      `yaml:"whitelist"`  // IPs exempt from rate limiting
 }
 
 func Load(path string) (*Config, error) {
@@ -91,6 +100,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Logging.RetentionDays == 0 {
 		cfg.Logging.RetentionDays = 30
 	}
+	if cfg.RateLimit.Interval == "" {
+		cfg.RateLimit.Interval = "3h"
+	}
+	if cfg.RateLimit.Rate == 0 {
+		cfg.RateLimit.Rate = 500
+	}
 
 	defaultMirrors := map[string]MirrorConfig{
 		"npm":    {Enabled: true, Upstream: "https://registry.npmjs.org", CacheTTL: "7d"},
@@ -102,6 +117,7 @@ func applyDefaults(cfg *Config) {
 		"quay":   {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
 		"mcr":    {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
 		"ghapi":  {Enabled: true, Upstream: "https://api.github.com", CacheTTL: "0"},
+			"hf":     {Enabled: true, Upstream: "https://huggingface.co", CacheTTL: "7d"},
 	}
 	for name, def := range defaultMirrors {
 		if _, ok := cfg.Mirrors[name]; !ok {
@@ -139,6 +155,15 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("DEVBOX_LOGGING_RETENTION_DAYS"); v != "" {
 		cfg.Logging.RetentionDays = mustInt(v)
 	}
+	if v := os.Getenv("DEVBOX_RATE_LIMIT_ENABLED"); v != "" {
+		cfg.RateLimit.Enabled = mustBool(v)
+	}
+	if v := os.Getenv("DEVBOX_RATE_LIMIT_RATE"); v != "" {
+		cfg.RateLimit.Rate = mustInt(v)
+	}
+	if v := os.Getenv("DEVBOX_RATE_LIMIT_INTERVAL"); v != "" {
+		cfg.RateLimit.Interval = v
+	}
 
 	for name := range cfg.Mirrors {
 		upstream := os.Getenv(fmt.Sprintf("DEVBOX_MIRROR_%s_UPSTREAM", strings.ToUpper(name)))
@@ -171,6 +196,12 @@ func parseDurations(cfg *Config) error {
 		return fmt.Errorf("gitproxy cache_ttl: %w", err)
 	}
 	cfg.GitProxy.CacheTTLd = d
+
+	d, err = parseDuration(cfg.RateLimit.Interval)
+	if err != nil {
+		return fmt.Errorf("rate_limit interval: %w", err)
+	}
+	cfg.RateLimit.IntervalDur = d
 	return nil
 }
 

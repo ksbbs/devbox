@@ -16,6 +16,10 @@ const features = [
   { name: 'GitHub API Proxy', status: 'stable', icon: '◆' },
   { name: 'Web UI Auth', status: 'stable', icon: '▣' },
   { name: 'Log Auto Cleanup', status: 'stable', icon: '▦' },
+  { name: 'Docker Registry Auth', status: 'stable', icon: '⬡' },
+  { name: 'Mirror Search', status: 'stable', icon: '◇' },
+  { name: 'IP Rate Limiting', status: 'stable', icon: '⊗' },
+  { name: 'HuggingFace Proxy', status: 'stable', icon: '△' },
   { name: 'PWA Support', status: 'planned', icon: '◈' },
   { name: 'Auto Update Notify', status: 'planned', icon: '◉' },
   { name: 'Plugin System', status: 'planned', icon: '◐' }
@@ -60,7 +64,7 @@ const statusText: Record<string, string> = {
           </div>
           <div>
             <div class="text-2xl font-bold text-white">DevBox</div>
-            <div class="text-slate-400">v1.0.0</div>
+            <div class="text-slate-400">v1.1.0</div>
             <div class="text-xs text-emerald-400 mt-1">✓ 运行正常</div>
               <div v-if="publicUrl" class="text-xs text-sky-400 mt-1 font-mono">{{ publicUrl }}</div>
           </div>

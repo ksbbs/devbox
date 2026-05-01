@@ -4,6 +4,7 @@ import Mirrors from '../views/Mirrors.vue'
 import GitProxy from '../views/GitProxy.vue'
 import Settings from '../views/Settings.vue'
 import Login from '../views/Login.vue'
+import Search from '../views/Search.vue'
 import { isLoggedIn, checkAuthRequired, initAuth } from '../api/client'
 
 const routes = [
@@ -11,6 +12,7 @@ const routes = [
   { path: '/', component: Dashboard },
   { path: '/mirrors', component: Mirrors },
   { path: '/gitproxy', component: GitProxy },
+  { path: '/search', component: Search },
   { path: '/settings', component: Settings },
 ]
 

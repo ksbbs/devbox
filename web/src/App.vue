@@ -44,6 +44,10 @@ import { isLoggedIn, logout } from './api/client'
             <span class="nav-icon">◉</span>
             Git Proxy
           </router-link>
+          <router-link to="/search" class="nav-link" active-class="active">
+            <span class="nav-icon">◇</span>
+            Search
+          </router-link>
           <router-link to="/settings" class="nav-link" active-class="active">
             <span class="nav-icon">◐</span>
             Settings

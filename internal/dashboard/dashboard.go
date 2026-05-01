@@ -47,6 +47,7 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		"mcr":      fmt.Sprintf("docker pull %s/mcr/owner/image:tag", hostOnly),
 		"ghapi":    fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
 		"gitproxy": fmt.Sprintf("git clone %s/gh/user/repo", baseURL),
+		"hf":       fmt.Sprintf("huggingface-cli download --endpoint %s/hf model/name", baseURL),
 	}
 
 	mirrors := mirror.All()
