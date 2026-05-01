@@ -164,9 +164,15 @@ DEVBOX_MIRROR_NPM_ENABLED=false
 # .env 文件中设置
 AUTH_TOKEN=my-secret-password
 
-# 或直接用环境变量
+# 然后启动
 docker compose up -d
 ```
+
+登录流程：
+1. 浏览器访问 `https://dev.example.com`，自动跳转到登录页
+2. 输入 `.env` 中设置的 `AUTH_TOKEN` 值作为密码
+3. 登录成功后进入 Dashboard，右上角可点击「登出」
+4. 密码即为 `AUTH_TOKEN` 的值，没有额外的用户管理系统
 
 **注意**：鉴权仅影响 Dashboard 界面，镜像加速和 Git 代理服务不受影响，无需密码即可使用。不设置 `AUTH_TOKEN` 则 Dashboard 无需登录直接访问。
 

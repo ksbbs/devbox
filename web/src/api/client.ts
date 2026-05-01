@@ -5,16 +5,13 @@ const api = axios.create({
   baseURL: '/api',
 })
 
-// 401 interceptor: clear token and redirect to login
+// 401 interceptor: clear token (router guard handles redirect)
 api.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
       localStorage.removeItem('devbox_token')
       setToken('')
-      if (router.currentRoute.value.path !== '/login') {
-        router.push('/login')
-      }
     }
     return Promise.reject(error)
   }

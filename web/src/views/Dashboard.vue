@@ -28,14 +28,20 @@ const mirrorColors: Record<string, string> = {
 onMounted(async () => {
   try {
     mirrors.value = await getStatus()
+  } catch {
+    mirrors.value = []
+  }
+  try {
     traffic.value = await getTraffic()
+  } catch { /* ignore */ }
+  try {
     const hourly = await getTraffic(undefined, undefined, 'hourly')
     await nextTick()
     renderChart(hourly)
+  } catch { /* ignore */ }
+  try {
     logs.value = await getRecentLogs(50)
-  } catch (e) {
-    mirrors.value = []
-  }
+  } catch { /* ignore */ }
   try {
     const config = await getPublicConfig()
     publicUrl.value = config.publicUrl || ''
