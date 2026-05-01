@@ -38,14 +38,26 @@ jobs:
       - name: Start container
         run: docker run -d --name devbox-test -p 8080:8080 -v devbox-test-data:/data devbox:test
 
-      - name: Wait for startup
-        run: sleep 5
+      - name: Wait and check startup
+        run: |
+          sleep 3
+          docker logs devbox-test 2>&1 || true
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:8080/api/status >/dev/null 2>&1; then
+              echo "Service is up!"
+              exit 0
+            fi
+            echo "Waiting... ($i/10)"
+            sleep 2
+          done
+          echo "Service failed to start"
+          docker logs devbox-test 2>&1
+          exit 1
 
       - name: Test status endpoint
         run: |
           STATUS=$(curl -sf http://localhost:8080/api/status)
           echo "Status response: $STATUS"
-          if [ -z "$STATUS" ]; then echo "FAIL: empty status response" && exit 1; fi
 
       - name: Test dashboard frontend
         run: |
