@@ -30,6 +30,8 @@
 AUTH_TOKEN=
 # 公网访问地址（设置后 Dashboard 会显示 HTTPS 命令）
 PUBLIC_URL=https://dev.example.com
+# 可选：修改服务端口（默认 8080）
+DEVBOX_SERVER_PORT=9090
 ```
 
 2. 启动服务：

@@ -4,10 +4,11 @@ services:
     container_name: devbox
     restart: always
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${PORT:-8080}:${DEVBOX_SERVER_PORT:-8080}"
     volumes:
       - devbox-data:/data
     environment:
+      - DEVBOX_SERVER_PORT=${DEVBOX_SERVER_PORT:-8080}
       - DEVBOX_AUTH_TOKEN=${AUTH_TOKEN:-}
       - DEVBOX_PUBLIC_URL=${PUBLIC_URL:-}
     command:
