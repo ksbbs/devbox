@@ -36,6 +36,10 @@ mirrors:
     enabled: true
     upstream: "https://mcr.microsoft.com"
     cache_ttl: "0"
+  ghapi:
+    enabled: true
+    upstream: "https://api.github.com"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true

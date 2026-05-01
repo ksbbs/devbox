@@ -3,6 +3,7 @@ package dashboard
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		"ghcr":   fmt.Sprintf("docker pull %s/ghcr/owner/image:tag", baseURL),
 		"quay":   fmt.Sprintf("docker pull %s/quay/owner/image:tag", baseURL),
 		"mcr":    fmt.Sprintf("docker pull %s/mcr/owner/image:tag", baseURL),
+		"ghapi":  fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
 	}
 
 	mirrors := mirror.All()
@@ -78,6 +80,7 @@ func (d *Dashboard) TrafficHandler(w http.ResponseWriter, r *http.Request) {
 
 	fromStr := r.URL.Query().Get("from")
 	toStr := r.URL.Query().Get("to")
+	granularity := r.URL.Query().Get("granularity")
 
 	from := time.Now().Add(-7 * 24 * time.Hour)
 	to := time.Now()
@@ -95,6 +98,16 @@ func (d *Dashboard) TrafficHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if granularity == "hourly" {
+		hourly, err := d.store.GetTrafficHourly(from, to)
+		if err != nil {
+			http.Error(w, "query error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, hourly)
+		return
+	}
+
 	summaries, err := d.store.GetTrafficSummary(from, to)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
@@ -102,6 +115,28 @@ func (d *Dashboard) TrafficHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, summaries)
+}
+
+func (d *Dashboard) LogHandler(w http.ResponseWriter, r *http.Request) {
+	if !d.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+
+	logs, err := d.store.GetRecentTraffic(limit)
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, logs)
 }
 
 func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) {

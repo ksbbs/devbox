@@ -17,7 +17,8 @@
 | Go 模块镜像 | 代理 `https://proxy.golang.org` |
 | CRAN 镜像 | 代理 `https://cran.r-project.org` |
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
-| Web Dashboard | 状态总览、流量统计、配置管理、使用指南 |
+| GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
+| Web Dashboard | 状态总览、流量图表、访问日志、配置管理、使用指南 |
 
 ## 快速部署
 
@@ -26,7 +27,7 @@
 1. 创建 `.env` 文件配置环境变量：
 
 ```bash
-# 可选：Dashboard 鉴权 token，空则不鉴权
+# 可选：Dashboard 鉴权密码，设置后访问 Dashboard 需登录，加速服务不受影响
 AUTH_TOKEN=
 # 公网访问地址（设置后 Dashboard 会显示 HTTPS 命令）
 PUBLIC_URL=https://dev.example.com
@@ -121,6 +122,10 @@ mirrors:
     enabled: true
     upstream: "https://mcr.microsoft.com"
     cache_ttl: "0"
+  ghapi:
+    enabled: true
+    upstream: "https://api.github.com"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true
@@ -203,6 +208,16 @@ docker pull http://<VPS>:8080/quay/owner/image:tag
 docker pull http://<VPS>:8080/mcr/owner/image:tag
 ```
 
+### GitHub API 加速
+
+```bash
+# 获取仓库信息
+curl http://<VPS>:8080/ghapi/repos/owner/repo
+
+# 获取用户信息
+curl http://<VPS>:8080/ghapi/users/username
+```
+
 ### Go 模块加速
 
 ```bash
@@ -256,6 +271,5 @@ docker run -d -p 8080:8080 -v devbox-data:/data devbox:latest
 
 ## 后续规划
 
-- API 代理网关（GitHub API 等）
 - Docker Compose 模板库
 - 健康监控与告警

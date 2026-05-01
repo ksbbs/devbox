@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { getStatus, getTraffic, getPublicConfig } from '../api/client'
+import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
+import Chart from 'chart.js/auto'
+import { getStatus, getTraffic, getPublicConfig, getRecentLogs } from '../api/client'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
 const traffic = ref<any[]>([])
+const logs = ref<any[]>([])
 const publicUrl = ref('')
 const copiedUsage = ref<string | null>(null)
+const chartMode = ref<'requests' | 'bandwidth'>('requests')
+let chartInstance: Chart | null = null
 
 const stats = computed(() => {
   const total = mirrors.value.length
@@ -15,10 +19,20 @@ const stats = computed(() => {
   return { total, healthy, enabled }
 })
 
+const mirrorColors: Record<string, string> = {
+  npm: '#38bdf8', pypi: '#a78bfa', docker: '#10b981', golang: '#f59e0b',
+  cran: '#ec4899', ghcr: '#6366f1', quay: '#f97316', mcr: '#14b8a6', ghapi: '#8b5cf6',
+  gitproxy: '#06b6d4'
+}
+
 onMounted(async () => {
   try {
     mirrors.value = await getStatus()
     traffic.value = await getTraffic()
+    const hourly = await getTraffic(undefined, undefined, 'hourly')
+    await nextTick()
+    renderChart(hourly)
+    logs.value = await getRecentLogs(50)
   } catch (e) {
     mirrors.value = []
   }
@@ -29,10 +43,78 @@ onMounted(async () => {
   loading.value = false
 })
 
+onUnmounted(() => {
+  if (chartInstance) chartInstance.destroy()
+})
+
+function renderChart(hourly: any[]) {
+  const canvas = document.getElementById('trafficChart') as HTMLCanvasElement
+  if (!canvas || !hourly.length) return
+
+  const hours = [...new Set(hourly.map((h: any) => h.hour))].sort()
+  const mirrorNames = [...new Set(hourly.map((h: any) => h.mirror))]
+
+  const datasets = mirrorNames.map(name => {
+    const data = hours.map(hour => {
+      const entry = hourly.find((h: any) => h.hour === hour && h.mirror === name)
+      if (!entry) return 0
+      return chartMode.value === 'bandwidth'
+        ? Math.round(entry.bytes_out / 1024 / 1024 * 100) / 100
+        : entry.requests
+    })
+    return {
+      label: name,
+      data,
+      borderColor: mirrorColors[name] || '#94a3b8',
+      backgroundColor: (mirrorColors[name] || '#94a3b8') + '20',
+      fill: false,
+      tension: 0.3,
+      pointRadius: 2,
+    }
+  })
+
+  if (chartInstance) chartInstance.destroy()
+  chartInstance = new Chart(canvas, {
+    type: 'line',
+    data: { labels: hours.map(h => h.slice(11, 16)), datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: '#1e293b' } },
+        y: {
+          ticks: { color: '#64748b' },
+          grid: { color: '#1e293b' },
+          title: { display: true, text: chartMode.value === 'bandwidth' ? 'MB' : 'Requests', color: '#94a3b8' }
+        }
+      }
+    }
+  })
+}
+
+async function switchChartMode() {
+  chartMode.value = chartMode.value === 'requests' ? 'bandwidth' : 'requests'
+  const hourly = await getTraffic(undefined, undefined, 'hourly')
+  renderChart(hourly)
+}
+
+async function refreshLogs() {
+  logs.value = await getRecentLogs(50)
+}
+
 function copyUsage(m: any) {
   navigator.clipboard.writeText(m.usage)
   copiedUsage.value = m.name
   setTimeout(() => copiedUsage.value = null, 2000)
+}
+
+function formatBytes(b: number) {
+  if (b < 1024) return b + ' B'
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
+  return (b / 1024 / 1024).toFixed(1) + ' MB'
 }
 </script>
 
@@ -150,6 +232,65 @@ function copyUsage(m: any) {
           </div>
         </div>
       </TransitionGroup>
+    </div>
+
+    <!-- 流量图表 -->
+    <div class="mt-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-300">流量趋势</h2>
+        <button @click="switchChartMode"
+          class="px-3 py-1.5 rounded-xl text-xs font-medium bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all">
+          {{ chartMode === 'requests' ? '切换到流量(MB)' : '切换到请求次数' }}
+        </button>
+      </div>
+      <div class="glass-card p-6 rounded-2xl">
+        <div style="height: 280px; position: relative;">
+          <canvas id="trafficChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 访问日志 -->
+    <div class="mt-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-300">访问日志</h2>
+        <button @click="refreshLogs"
+          class="px-3 py-1.5 rounded-xl text-xs font-medium bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all">
+          刷新
+        </button>
+      </div>
+      <div class="glass-card rounded-2xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-white/5">
+              <th class="px-4 py-3 text-left text-slate-500 font-medium">时间</th>
+              <th class="px-4 py-3 text-left text-slate-500 font-medium">Mirror</th>
+              <th class="px-4 py-3 text-left text-slate-500 font-medium">方法</th>
+              <th class="px-4 py-3 text-left text-slate-500 font-medium">路径</th>
+              <th class="px-4 py-3 text-left text-slate-500 font-medium">状态</th>
+              <th class="px-4 py-3 text-right text-slate-500 font-medium">大小</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in logs" :key="log.id" class="border-b border-white/3 hover:bg-white/5 transition-colors">
+              <td class="px-4 py-2.5 text-slate-400 font-mono text-xs">{{ log.created_at?.slice(11, 19) }}</td>
+              <td class="px-4 py-2.5">
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :style="{ color: mirrorColors[log.mirror] || '#94a3b8', background: (mirrorColors[log.mirror] || '#94a3b8') + '20' }">
+                  {{ log.mirror }}
+                </span>
+              </td>
+              <td class="px-4 py-2.5 text-slate-400 font-mono">{{ log.method }}</td>
+              <td class="px-4 py-2.5 text-slate-300 font-mono text-xs truncate max-w-[200px]">{{ log.path }}</td>
+              <td class="px-4 py-2.5">
+                <span :class="log.status >= 200 && log.status < 300 ? 'text-emerald-400' : 'text-red-400'">{{ log.status }}</span>
+              </td>
+              <td class="px-4 py-2.5 text-slate-400 text-xs text-right">{{ formatBytes(log.bytes_out) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="!logs.length" class="px-4 py-8 text-center text-slate-500">暂无访问记录</div>
+      </div>
     </div>
   </div>
 </template>

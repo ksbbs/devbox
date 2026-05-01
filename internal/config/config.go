@@ -97,6 +97,7 @@ func applyDefaults(cfg *Config) {
 		"ghcr":   {Enabled: true, Upstream: "https://ghcr.io", CacheTTL: "0"},
 		"quay":   {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
 		"mcr":    {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
+		"ghapi":  {Enabled: true, Upstream: "https://api.github.com", CacheTTL: "0"},
 	}
 	for name, def := range defaultMirrors {
 		if _, ok := cfg.Mirrors[name]; !ok {

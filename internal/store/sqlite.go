@@ -96,6 +96,65 @@ func (s *Store) GetTrafficSummary(from, to time.Time) ([]TrafficSummary, error) 
 	return summaries, nil
 }
 
+type TrafficHourly struct {
+	Hour     string
+	Mirror   string
+	Requests int
+	BytesOut int64
+}
+
+func (s *Store) GetTrafficHourly(from, to time.Time) ([]TrafficHourly, error) {
+	rows, err := s.db.Query(
+		"SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at), mirror, COUNT(*), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY 1, mirror ORDER BY 1",
+		from.Format(time.RFC3339), to.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []TrafficHourly
+	for rows.Next() {
+		var th TrafficHourly
+		if err := rows.Scan(&th.Hour, &th.Mirror, &th.Requests, &th.BytesOut); err != nil {
+			return nil, err
+		}
+		result = append(result, th)
+	}
+	return result, nil
+}
+
+type TrafficLog struct {
+	ID        int64
+	Mirror    string
+	Method    string
+	Path      string
+	BytesOut  int64
+	Status    int
+	CreatedAt string
+}
+
+func (s *Store) GetRecentTraffic(limit int) ([]TrafficLog, error) {
+	rows, err := s.db.Query(
+		"SELECT id, mirror, method, path, bytes_out, status, created_at FROM traffic ORDER BY created_at DESC LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []TrafficLog
+	for rows.Next() {
+		var tl TrafficLog
+		if err := rows.Scan(&tl.ID, &tl.Mirror, &tl.Method, &tl.Path, &tl.BytesOut, &tl.Status, &tl.CreatedAt); err != nil {
+			return nil, err
+		}
+		logs = append(logs, tl)
+	}
+	return logs, nil
+}
+
 type HealthStatus struct {
 	Mirror    string
 	Status    string

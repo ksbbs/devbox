@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isLoggedIn, logout } from './api/client'
 </script>
 
 <template>
@@ -47,6 +48,10 @@
             <span class="nav-icon">◐</span>
             Settings
           </router-link>
+          <button v-if="isLoggedIn()" @click="logout"
+            class="ml-auto px-3 py-1.5 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-all">
+            登出
+          </button>
         </div>
       </div>
     </nav>

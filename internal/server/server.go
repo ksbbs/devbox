@@ -80,6 +80,7 @@ func (s *Server) Start() error {
 	// Dashboard API routes
 	mux.HandleFunc("/api/status", s.dash.StatusHandler)
 	mux.HandleFunc("/api/stats/traffic", s.dash.TrafficHandler)
+	mux.HandleFunc("/api/stats/logs", s.dash.LogHandler)
 	mux.HandleFunc("/api/config/mirrors", s.dash.MirrorConfigHandler)
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
