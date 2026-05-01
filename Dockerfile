@@ -12,6 +12,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+RUN ls -la /app/ && ls -la /app/cmd/ && ls -la /app/cmd/devbox/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o devbox ./cmd/devbox/
 
 # Stage 3: Final image
