@@ -1,0 +1,10 @@
+/devbox
+/devbox.exe
+/*.exe
+.git
+.vscode
+.idea
+web/node_modules
+web/dist
+data
+*.md
