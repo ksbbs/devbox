@@ -5,6 +5,7 @@ import { getPublicConfig, getRateLimitConfig, updateRateLimitConfig } from '../a
 const publicUrl = ref('')
 const rlEnabled = ref(false)
 const rlRate = ref(500)
+const rlInterval = ref('3h')
 const rlWhitelist = ref('')
 const rlBlacklist = ref('')
 const rlSaving = ref(false)
@@ -19,6 +20,7 @@ onMounted(async () => {
     const rl = await getRateLimitConfig()
     rlEnabled.value = rl.enabled
     rlRate.value = rl.rate
+    rlInterval.value = rl.interval || '3h'
     rlWhitelist.value = (rl.whitelist || []).join(', ')
     rlBlacklist.value = (rl.blacklist || []).join(', ')
   } catch { /* ignore */ }
@@ -30,9 +32,10 @@ async function saveRateLimit() {
   try {
     const wl = rlWhitelist.value.split(',').map(s => s.trim()).filter(Boolean)
     const bl = rlBlacklist.value.split(',').map(s => s.trim()).filter(Boolean)
-    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, whitelist: wl, blacklist: bl })
+    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, interval: rlInterval.value, whitelist: wl, blacklist: bl })
     rlEnabled.value = res.enabled
     rlRate.value = res.rate
+    rlInterval.value = res.interval || rlInterval.value
     rlMsg.value = 'saved'
     setTimeout(() => rlMsg.value = '', 1500)
   } catch {
@@ -66,7 +69,7 @@ const capabilities = [
         <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-900 pb-3">
           <div>
             <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">rate limit</h2>
-            <p class="mt-1 text-xs text-slate-600">令牌桶限流，白名单绕过，黑名单直接拒绝。</p>
+            <p class="mt-1 text-xs text-slate-600">滚动时间窗口限流，白名单绕过，黑名单直接拒绝。</p>
           </div>
           <button class="btn" :class="rlEnabled ? 'btn-primary' : ''" @click="rlEnabled = !rlEnabled">
             {{ rlEnabled ? 'enabled' : 'disabled' }}
@@ -75,8 +78,12 @@ const capabilities = [
 
         <div class="grid gap-4">
           <label class="grid gap-1">
-            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">max requests per interval</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">max requests per rolling window</span>
             <input v-model="rlRate" type="number" min="1" class="input w-full" />
+          </label>
+          <label class="grid gap-1">
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">rolling window</span>
+            <input v-model="rlInterval" type="text" class="input w-full" placeholder="3h, 30m, 1d" />
           </label>
           <label class="grid gap-1">
             <span class="text-xs uppercase tracking-[0.16em] text-slate-500">whitelist</span>

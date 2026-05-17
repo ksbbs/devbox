@@ -28,6 +28,7 @@ type RateLimitConfigAccessor interface {
 	GetRateLimitConfig() RateLimitConfigView
 	SetRateLimitEnabled(enabled bool)
 	SetRateLimitRate(rate int)
+	SetRateLimitInterval(interval string)
 	SetRateLimitWhitelist(list []string)
 	SetRateLimitBlacklist(list []string)
 }
@@ -344,6 +345,7 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 		}
 		d.rlConfig.SetRateLimitEnabled(req.Enabled)
 		d.rlConfig.SetRateLimitRate(req.Rate)
+		d.rlConfig.SetRateLimitInterval(req.Interval)
 		d.rlConfig.SetRateLimitWhitelist(req.Whitelist)
 		d.rlConfig.SetRateLimitBlacklist(req.Blacklist)
 		writeJSON(w, d.rlConfig.GetRateLimitConfig())

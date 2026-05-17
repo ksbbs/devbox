@@ -62,7 +62,7 @@ logging:
 
 rate_limit:
   enabled: false                  # 启用 IP 限流
-  rate: 500                       # 每个 IP 每时段最大请求数
-  interval: "3h"                  # 时段长度
+  rate: 500                       # 每个 IP 在滚动时间窗口内最大请求数
+  interval: "3h"                  # 滚动时间窗口长度
   whitelist: []                   # 白名单 IP/CIDR（免限速）
   blacklist: []                   # 黑名单 IP/CIDR（永远禁止）

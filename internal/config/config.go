@@ -53,12 +53,12 @@ type LoggingConfig struct {
 }
 
 type RateLimitConfig struct {
-	Enabled      bool          `yaml:"enabled"`
-	Rate         int           `yaml:"rate"`       // max requests per interval
-	Interval     string        `yaml:"interval"`   // e.g. "3h"
-	IntervalDur  time.Duration // parsed
-	Whitelist    []string      `yaml:"whitelist"`  // IPs exempt from rate limiting
-	Blacklist    []string      `yaml:"blacklist"`  // IPs always blocked
+	Enabled     bool          `yaml:"enabled"`
+	Rate        int           `yaml:"rate"`      // max requests per rolling window
+	Interval    string        `yaml:"interval"`  // rolling window length, e.g. "3h"
+	IntervalDur time.Duration // parsed
+	Whitelist   []string      `yaml:"whitelist"` // IPs exempt from rate limiting
+	Blacklist   []string      `yaml:"blacklist"` // IPs always blocked
 }
 
 func Load(path string) (*Config, error) {
@@ -75,7 +75,7 @@ func Load(path string) (*Config, error) {
 	applyDefaults(cfg)
 	applyEnvOverrides(cfg)
 
-	if err := parseDurations(cfg); err != nil {
+	if err := ParseDurations(cfg); err != nil {
 		return nil, err
 	}
 	if err := parseCacheMaxSize(cfg); err != nil {
@@ -182,9 +182,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 }
 
-func parseDurations(cfg *Config) error {
+func ParseDurations(cfg *Config) error {
 	for name, m := range cfg.Mirrors {
-		d, err := parseDuration(m.CacheTTL)
+		d, err := ParseDuration(m.CacheTTL)
 		if err != nil {
 			return fmt.Errorf("mirror %s cache_ttl: %w", name, err)
 		}
@@ -192,13 +192,13 @@ func parseDurations(cfg *Config) error {
 		cfg.Mirrors[name] = m
 	}
 
-	d, err := parseDuration(cfg.GitProxy.CacheTTL)
+	d, err := ParseDuration(cfg.GitProxy.CacheTTL)
 	if err != nil {
 		return fmt.Errorf("gitproxy cache_ttl: %w", err)
 	}
 	cfg.GitProxy.CacheTTLd = d
 
-	d, err = parseDuration(cfg.RateLimit.Interval)
+	d, err = ParseDuration(cfg.RateLimit.Interval)
 	if err != nil {
 		return fmt.Errorf("rate_limit interval: %w", err)
 	}
@@ -206,7 +206,7 @@ func parseDurations(cfg *Config) error {
 	return nil
 }
 
-func parseDuration(s string) (time.Duration, error) {
+func ParseDuration(s string) (time.Duration, error) {
 	if s == "0" {
 		return 0, nil // never expire
 	}

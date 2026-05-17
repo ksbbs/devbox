@@ -21,7 +21,7 @@ import (
 
 // tokenCache stores registry auth tokens with expiry
 type tokenCache struct {
-	mu    sync.RWMutex
+	mu     sync.RWMutex
 	tokens map[string]*cachedToken
 }
 
@@ -49,6 +49,7 @@ type Server struct {
 	gitProxy   *gitproxy.GitProxy
 	dash       *dashboard.Dashboard
 	store      *store.Store
+	limiterMu  sync.RWMutex
 	limiter    *ratelimit.Limiter
 	search     *dashboard.SearchHandler
 	tokenCache *tokenCache
@@ -137,7 +138,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/search", s.search.Search)
 
 	// Docker v2 registry API — proxy handles auth transparently
-	mux.HandleFunc("/v2/", s.registryV2Handler)
+	mux.HandleFunc("/v2/", s.wrapWithDynamicStats(registryStatsName, s.registryV2Handler))
 
 	// Frontend static files
 	if s.frontDir != "" {
@@ -269,7 +270,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 
 	// If 401 with our token, clear cache and retry once
 	if resp.StatusCode == 401 && token != "" {
-// Clear stale token from cache using proper key
+		// Clear stale token from cache using proper key
 		rest := strings.TrimPrefix(r.URL.Path, "/v2/")
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) >= 1 {
@@ -486,25 +487,68 @@ func (s *Server) GetRateLimitConfig() dashboard.RateLimitConfigView {
 
 func (s *Server) SetRateLimitEnabled(enabled bool) {
 	s.cfg.RateLimit.Enabled = enabled
+	s.rebuildLimiter()
 }
 
 func (s *Server) SetRateLimitRate(rate int) {
 	s.cfg.RateLimit.Rate = rate
+	s.rebuildLimiter()
+}
+
+func (s *Server) SetRateLimitInterval(interval string) {
+	if d, err := config.ParseDuration(interval); err == nil {
+		s.cfg.RateLimit.Interval = interval
+		s.cfg.RateLimit.IntervalDur = d
+		s.rebuildLimiter()
+	}
 }
 
 func (s *Server) SetRateLimitWhitelist(list []string) {
 	s.cfg.RateLimit.Whitelist = list
+	s.rebuildLimiter()
 }
 
 func (s *Server) SetRateLimitBlacklist(list []string) {
 	s.cfg.RateLimit.Blacklist = list
+	s.rebuildLimiter()
+}
+
+func (s *Server) rebuildLimiter() {
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+	if !s.cfg.RateLimit.Enabled {
+		s.limiter = nil
+		return
+	}
+	s.limiter = ratelimit.New(s.cfg.RateLimit.Rate, s.cfg.RateLimit.IntervalDur, s.cfg.RateLimit.Whitelist, s.cfg.RateLimit.Blacklist)
+}
+
+func (s *Server) getLimiter() *ratelimit.Limiter {
+	s.limiterMu.RLock()
+	defer s.limiterMu.RUnlock()
+	return s.limiter
+}
+
+func registryStatsName(r *http.Request) string {
+	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/v2/"), "/", 2)
+	if len(parts) > 1 {
+		if _, ok := registries[parts[0]]; ok {
+			return parts[0]
+		}
+	}
+	return "docker"
 }
 
 func (s *Server) wrapWithStats(name string, handler http.HandlerFunc) http.HandlerFunc {
+	return s.wrapWithDynamicStats(func(*http.Request) string { return name }, handler)
+}
+
+func (s *Server) wrapWithDynamicStats(nameFor func(*http.Request) string, handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sw := &statusWriter{ResponseWriter: w}
 		start := time.Now()
 		handler(sw, r)
+		name := nameFor(r)
 		s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status)
 		log.Printf("[%s] %s %s %d %dms %dB",
 			name, r.Method, r.URL.Path, sw.status,
@@ -578,7 +622,8 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !s.limiter.Allow(r) {
+		limiter := s.getLimiter()
+		if limiter != nil && !limiter.Allow(r) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
@@ -587,11 +632,10 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *Server) rateLimitCleanup() {
-	if s.limiter == nil {
-		return
-	}
 	ticker := time.NewTicker(10 * time.Minute)
 	for range ticker.C {
-		s.limiter.Cleanup()
+		if limiter := s.getLimiter(); limiter != nil {
+			limiter.Cleanup()
+		}
 	}
 }

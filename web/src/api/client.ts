@@ -93,6 +93,6 @@ export async function getRateLimitConfig() {
   return api.get('/config/ratelimit').then(r => r.data)
 }
 
-export async function updateRateLimitConfig(config: { enabled: boolean; rate: number; whitelist: string[]; blacklist: string[] }) {
+export async function updateRateLimitConfig(config: { enabled: boolean; rate: number; interval: string; whitelist: string[]; blacklist: string[] }) {
   return api.put('/config/ratelimit', config).then(r => r.data)
 }
