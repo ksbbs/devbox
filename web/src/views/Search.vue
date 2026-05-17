@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { searchMirrors, getPublicConfig } from '../api/client'
 
 const query = ref('')
@@ -10,20 +10,21 @@ const publicUrl = ref('')
 const selectedRegistry = ref('')
 const copiedName = ref<string | null>(null)
 
-getPublicConfig().then(c => publicUrl.value = c.publicUrl || '').catch(() => {})
+onMounted(async () => {
+  try {
+    const config = await getPublicConfig()
+    publicUrl.value = config.publicUrl || window.location.origin
+  } catch {
+    publicUrl.value = window.location.origin
+  }
+})
 
 const registryOptions = [
-  { label: '全部', value: '' },
+  { label: 'all', value: '' },
   { label: 'npm', value: 'npm' },
-  { label: 'Docker Hub', value: 'docker' },
-  { label: 'PyPI', value: 'pypi' },
+  { label: 'docker', value: 'docker' },
+  { label: 'pypi', value: 'pypi' },
 ]
-
-const registryColors: Record<string, string> = {
-  npm: '#38bdf8',
-  docker: '#10b981',
-  pypi: '#a78bfa',
-}
 
 async function doSearch() {
   if (!query.value.trim()) return
@@ -38,107 +39,80 @@ async function doSearch() {
   loading.value = false
 }
 
-function copyInstall(name: string, registry: string) {
+function installCommand(name: string, registry: string) {
   const base = publicUrl.value || 'http://localhost:8080'
-  let cmd = ''
-  if (registry === 'npm') cmd = `npm install ${name} --registry ${base}/npm`
-  else if (registry === 'docker') cmd = `docker pull ${name}`
-  else if (registry === 'pypi') cmd = `pip install ${name} -i ${base}/pypi`
-  navigator.clipboard.writeText(cmd)
+  if (registry === 'npm') return `npm install ${name} --registry ${base}/npm`
+  if (registry === 'docker') return `docker pull ${name}`
+  if (registry === 'pypi') return `pip install ${name} -i ${base}/pypi`
+  return name
+}
+
+function copyInstall(name: string, registry: string) {
+  navigator.clipboard.writeText(installCommand(name, registry))
   copiedName.value = name
-  setTimeout(() => copiedName.value = null, 2000)
+  setTimeout(() => copiedName.value = null, 1500)
 }
 </script>
 
 <template>
   <div>
-    <div class="mb-8">
-      <h1 class="text-4xl font-bold mb-2">
-        <span class="bg-gradient-to-r from-sky-400 via-cyan-400 to-teal-400 bg-clip-text text-transparent">
-          Search
-        </span>
-      </h1>
-      <p class="text-slate-400">搜索 npm、Docker Hub、PyPI 镜像包</p>
-      <p v-if="selectedRegistry === 'pypi'" class="text-slate-500 text-xs mt-1">PyPI 仅支持精确包名搜索</p>
-    </div>
+    <section class="page-header">
+      <span class="page-kicker">lookup</span>
+      <h1 class="page-title">Search</h1>
+      <p class="page-subtitle">搜索 npm、Docker Hub、PyPI，并复制可直接使用的安装命令。</p>
+    </section>
 
-    <!-- 搜索栏 -->
-    <div class="search-card p-6 rounded-2xl mb-6">
-      <div class="flex gap-3">
-        <div class="flex-1 relative">
-          <input
-            v-model="query"
-            @keyup.enter="doSearch"
-            type="text"
-            placeholder="输入包名搜索..."
-            class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:border-sky-500/50 focus:outline-none transition-all"
-          />
-        </div>
-        <select
-          v-model="selectedRegistry"
-          class="registry-select px-4 py-3 rounded-xl bg-slate-800 border border-white/10 text-slate-200 focus:border-sky-500/50 focus:outline-none appearance-none cursor-pointer"
-        >
-          <option v-for="opt in registryOptions" :key="opt.value" :value="opt.value" class="bg-slate-800 text-slate-200">{{ opt.label }}</option>
+    <section class="panel-pad mb-5">
+      <div class="grid gap-3 lg:grid-cols-[1fr_160px_auto]">
+        <input
+          v-model="query"
+          class="input w-full"
+          type="text"
+          placeholder="package / image name"
+          @keyup.enter="doSearch"
+        />
+        <select v-model="selectedRegistry" class="select w-full">
+          <option v-for="opt in registryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
-        <button
-          @click="doSearch"
-          :disabled="loading"
-          class="px-6 py-3 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 hover:bg-sky-500/30 transition-all disabled:opacity-50"
-        >
-          {{ loading ? '搜索中...' : '搜索' }}
+        <button class="btn btn-primary" :disabled="loading" @click="doSearch">
+          {{ loading ? 'searching' : 'search' }}
         </button>
       </div>
-    </div>
+      <p v-if="selectedRegistry === 'pypi'" class="mt-2 text-xs text-slate-500">PyPI 当前仅支持精确包名搜索。</p>
+    </section>
 
-    <!-- 错误提示 -->
-    <div v-if="errorMsg" class="text-center text-red-400 py-4 bg-red-500/10 rounded-xl mb-4">
+    <div v-if="errorMsg" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
       {{ errorMsg }}
     </div>
 
-    <!-- 搜索结果 -->
-    <div v-if="results.length" class="space-y-3">
-      <div v-for="r in results" :key="r.registry + r.name"
-        class="search-card group p-4 rounded-xl flex items-center gap-4 transition-all duration-300 hover:border-opacity-50"
-        :style="{ '--color': registryColors[r.registry] || '#94a3b8' }">
-        <span class="px-2 py-1 rounded-full text-xs font-medium"
-          :style="{ color: registryColors[r.registry] || '#94a3b8', background: (registryColors[r.registry] || '#94a3b8') + '20' }">
-          {{ r.registry }}
-        </span>
-        <div class="flex-1">
-          <div class="font-medium text-white">{{ r.name }}</div>
-          <div v-if="r.desc" class="text-sm text-slate-400 mt-1 truncate">{{ r.desc }}</div>
-        </div>
-        <button
-          @click="copyInstall(r.name, r.registry)"
-          class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          :class="copiedName === r.name ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
-        >
-          {{ copiedName === r.name ? '已复制!' : '复制安装命令' }}
-        </button>
-      </div>
-    </div>
-
-    <div v-if="!results.length && !loading && !errorMsg && query" class="text-center text-slate-500 py-12">
-      搜索结果为空，请尝试其他关键词
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>registry</th>
+            <th>name</th>
+            <th>description</th>
+            <th>install command</th>
+            <th>action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in results" :key="r.registry + r.name">
+            <td><span class="tag" :class="r.registry === 'docker' ? 'tag-ok' : r.registry === 'pypi' ? 'tag-warn' : ''">{{ r.registry }}</span></td>
+            <td class="font-semibold text-slate-100">{{ r.name }}</td>
+            <td class="max-w-[360px] truncate text-slate-500">{{ r.desc || '-' }}</td>
+            <td class="max-w-[420px] truncate font-mono text-xs text-emerald-300">{{ installCommand(r.name, r.registry) }}</td>
+            <td>
+              <button class="btn" @click="copyInstall(r.name, r.registry)">
+                {{ copiedName === r.name ? 'copied' : 'copy' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!results.length && !loading && query" class="p-6 text-center text-sm text-slate-500">搜索结果为空，请尝试其他关键词。</div>
+      <div v-if="!results.length && !loading && !query" class="p-6 text-center text-sm text-slate-600">输入关键词后开始搜索。</div>
+      <div v-if="loading" class="p-6 text-center text-sm text-cyan-400">searching...</div>
     </div>
   </div>
 </template>
-
-<style>
-.search-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-}
-
-.search-card:hover {
-  border-color: var(--color, rgba(56, 189, 248, 0.3));
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-}
-
-.registry-select option {
-  background: #1e293b;
-  color: #cbd5e1;
-  padding: 8px;
-}
-</style>

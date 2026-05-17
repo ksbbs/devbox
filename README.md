@@ -22,7 +22,7 @@
 | Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
 | 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI 包 |
 | IP 限流 | 令牌桶限流防滥用，白名单免限速 |
-| Web Dashboard | 状态总览、流量图表、访问日志、配置管理、使用指南 |
+| Web Dashboard | 极客轻量控制台风格，提供状态总览、轻量流量趋势、访问日志、配置管理、使用指南 |
 | 日志自动清除 | 流量日志保留可配置天数（默认 30 天），过期自动清理 |
 
 ## 快速部署
@@ -327,6 +327,16 @@ curl http://<VPS>:8080/gh/user/repo/archive/main.zip -o main.zip
 # Raw 文件
 curl http://<VPS>:8080/gh/user/repo/raw/branch/file.txt
 ```
+
+## Web Dashboard
+
+Dashboard 采用极客轻量控制台风格，面向开发者高效扫读：
+
+- Dashboard：镜像健康状态、启用统计、轻量流量趋势、最近访问日志、使用命令复制
+- Mirrors：镜像启停、上游地址修改、缓存 TTL 查看
+- Git Proxy：GitHub / GitLab clone、archive、raw 命令生成与复制
+- Search：npm、Docker Hub、PyPI 搜索与安装命令复制
+- Settings：版本/运行信息、IP 限流白名单/黑名单配置
 
 ## 本地开发
 
