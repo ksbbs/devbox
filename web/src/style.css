@@ -1,12 +1,142 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: #05070a;
+  color: #d6deeb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.025) 1px, transparent 1px),
+    #05070a;
+  background-size: 24px 24px;
+  color: #d6deeb;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
 }
 
 #app {
   min-height: 100vh;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+  color: #f8fafc;
+}
+
+@layer components {
+  .page-header {
+    @apply mb-5 flex flex-col gap-1 border-b border-slate-800 pb-4;
+  }
+
+  .page-kicker {
+    @apply text-xs uppercase tracking-[0.28em] text-cyan-400;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-slate-100;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-slate-500;
+  }
+
+  .panel {
+    @apply border border-slate-800 bg-slate-950/80;
+  }
+
+  .panel-pad {
+    @apply border border-slate-800 bg-slate-950/80 p-4;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors duration-150 hover:border-cyan-500/60 hover:text-cyan-300 disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-cyan-500/50 bg-cyan-950/40 text-cyan-200 hover:border-cyan-300 hover:text-cyan-100;
+  }
+
+  .btn-danger {
+    @apply border-red-500/40 bg-red-950/30 text-red-300 hover:border-red-400 hover:text-red-200;
+  }
+
+  .input {
+    @apply border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none transition-colors duration-150 placeholder:text-slate-600 focus:border-cyan-500/70;
+  }
+
+  .select {
+    @apply border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none transition-colors duration-150 focus:border-cyan-500/70;
+  }
+
+  .table-wrap {
+    @apply overflow-x-auto border border-slate-800 bg-slate-950/80;
+  }
+
+  .data-table {
+    @apply w-full min-w-max text-left text-sm;
+  }
+
+  .data-table thead {
+    @apply border-b border-slate-800 bg-slate-900/80 text-xs uppercase tracking-[0.16em] text-slate-500;
+  }
+
+  .data-table th {
+    @apply px-3 py-2 font-medium;
+  }
+
+  .data-table td {
+    @apply border-b border-slate-900 px-3 py-2 align-middle;
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors duration-150 hover:bg-slate-900/70;
+  }
+
+  .tag {
+    @apply inline-flex items-center border border-slate-700 px-2 py-0.5 text-xs font-medium text-slate-400;
+  }
+
+  .tag-ok {
+    @apply border-emerald-500/40 bg-emerald-950/30 text-emerald-300;
+  }
+
+  .tag-warn {
+    @apply border-amber-500/40 bg-amber-950/30 text-amber-300;
+  }
+
+  .tag-off {
+    @apply border-slate-700 bg-slate-900 text-slate-500;
+  }
+
+  .code-line {
+    @apply border border-slate-800 bg-black/40 px-3 py-2 font-mono text-xs text-emerald-300;
+  }
+
+  .muted-link {
+    @apply text-cyan-400 transition-colors duration-150 hover:text-cyan-200;
+  }
 }
