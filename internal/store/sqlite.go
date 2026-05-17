@@ -69,10 +69,10 @@ func (s *Store) RecordHealthCheck(mirror, status, errMsg string) error {
 }
 
 type TrafficSummary struct {
-	Mirror    string
-	Requests  int
-	BytesIn   int64
-	BytesOut  int64
+	Mirror   string `json:"mirror"`
+	Requests int    `json:"requests"`
+	BytesIn  int64  `json:"bytes_in"`
+	BytesOut int64  `json:"bytes_out"`
 }
 
 func (s *Store) GetTrafficSummary(from, to time.Time) ([]TrafficSummary, error) {
@@ -93,14 +93,17 @@ func (s *Store) GetTrafficSummary(from, to time.Time) ([]TrafficSummary, error) 
 		}
 		summaries = append(summaries, ts)
 	}
+	if summaries == nil {
+		summaries = []TrafficSummary{}
+	}
 	return summaries, nil
 }
 
 type TrafficHourly struct {
-	Hour     string
-	Mirror   string
-	Requests int
-	BytesOut int64
+	Hour     string `json:"hour"`
+	Mirror   string `json:"mirror"`
+	Requests int    `json:"requests"`
+	BytesOut int64  `json:"bytes_out"`
 }
 
 func (s *Store) GetTrafficHourly(from, to time.Time) ([]TrafficHourly, error) {
@@ -121,17 +124,20 @@ func (s *Store) GetTrafficHourly(from, to time.Time) ([]TrafficHourly, error) {
 		}
 		result = append(result, th)
 	}
+	if result == nil {
+		result = []TrafficHourly{}
+	}
 	return result, nil
 }
 
 type TrafficLog struct {
-	ID        int64
-	Mirror    string
-	Method    string
-	Path      string
-	BytesOut  int64
-	Status    int
-	CreatedAt string
+	ID        int64  `json:"id"`
+	Mirror    string `json:"mirror"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	BytesOut  int64  `json:"bytes_out"`
+	Status    int    `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
 
 func (s *Store) GetRecentTraffic(limit int) ([]TrafficLog, error) {
@@ -151,6 +157,9 @@ func (s *Store) GetRecentTraffic(limit int) ([]TrafficLog, error) {
 			return nil, err
 		}
 		logs = append(logs, tl)
+	}
+	if logs == nil {
+		logs = []TrafficLog{}
 	}
 	return logs, nil
 }

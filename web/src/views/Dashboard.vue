@@ -9,7 +9,66 @@ const hourlyTraffic = ref<any[]>([])
 const logs = ref<any[]>([])
 const publicUrl = ref('')
 const copiedUsage = ref<string | null>(null)
+const copiedGuide = ref<string | null>(null)
 const chartMode = ref<'requests' | 'bandwidth'>('requests')
+const usageBaseUrl = computed(() => (publicUrl.value || window.location.origin).replace(/\/$/, ''))
+const dockerHost = computed(() => usageBaseUrl.value.replace(/^https?:\/\//, ''))
+
+const mirrorUsage = computed(() => [
+  {
+    title: 'npm',
+    desc: '设置默认 registry 后直接 npm install。',
+    cmd: `npm config set registry ${usageBaseUrl.value}/npm`,
+  },
+  {
+    title: 'PyPI',
+    desc: '设置 pip 全局 index-url。',
+    cmd: `pip config set global.index-url ${usageBaseUrl.value}/pypi`,
+  },
+  {
+    title: 'Docker Hub',
+    desc: '写入 /etc/docker/daemon.json 的 registry-mirrors。',
+    cmd: `{"registry-mirrors":["${usageBaseUrl.value}/docker"]}`,
+  },
+  {
+    title: 'Go modules',
+    desc: '设置 GOPROXY，失败时回落 direct。',
+    cmd: `go env -w GOPROXY=${usageBaseUrl.value}/golang,direct`,
+  },
+  {
+    title: 'GHCR',
+    desc: '拉取 GitHub Container Registry 镜像。',
+    cmd: `docker pull ${dockerHost.value}/ghcr/owner/image:tag`,
+  },
+  {
+    title: 'HuggingFace',
+    desc: '设置模型下载 endpoint。',
+    cmd: `export HF_ENDPOINT=${usageBaseUrl.value}/hf`,
+  },
+])
+
+const gitUsage = computed(() => [
+  {
+    title: 'GitHub clone',
+    desc: '把 github.com/owner/repo 替换为 /gh/owner/repo。',
+    cmd: `git clone ${usageBaseUrl.value}/gh/user/repo`,
+  },
+  {
+    title: 'GitLab clone',
+    desc: '把 gitlab.com/group/repo 替换为 /gl/group/repo。',
+    cmd: `git clone ${usageBaseUrl.value}/gl/group/repo`,
+  },
+  {
+    title: 'Archive',
+    desc: '下载仓库压缩包。',
+    cmd: `curl ${usageBaseUrl.value}/gh/user/repo/archive/main.zip -o main.zip`,
+  },
+  {
+    title: 'Raw file',
+    desc: '读取仓库原始文件内容。',
+    cmd: `curl ${usageBaseUrl.value}/gh/user/repo/raw/branch/file.txt`,
+  },
+])
 
 const stats = computed(() => {
   const total = mirrors.value.length
@@ -73,10 +132,10 @@ onMounted(async () => {
     getPublicConfig(),
   ])
 
-  if (statusRes.status === 'fulfilled') mirrors.value = statusRes.value
-  if (trafficRes.status === 'fulfilled') traffic.value = trafficRes.value
-  if (hourlyRes.status === 'fulfilled') hourlyTraffic.value = hourlyRes.value
-  if (logsRes.status === 'fulfilled') logs.value = logsRes.value
+  if (statusRes.status === 'fulfilled') mirrors.value = Array.isArray(statusRes.value) ? statusRes.value : []
+  if (trafficRes.status === 'fulfilled') traffic.value = Array.isArray(trafficRes.value) ? trafficRes.value : []
+  if (hourlyRes.status === 'fulfilled') hourlyTraffic.value = Array.isArray(hourlyRes.value) ? hourlyRes.value : []
+  if (logsRes.status === 'fulfilled') logs.value = Array.isArray(logsRes.value) ? logsRes.value : []
   if (configRes.status === 'fulfilled') publicUrl.value = configRes.value.publicUrl || ''
   loading.value = false
 })
@@ -93,6 +152,12 @@ function copyUsage(m: any) {
   navigator.clipboard.writeText(m.usage)
   copiedUsage.value = m.name
   setTimeout(() => copiedUsage.value = null, 1500)
+}
+
+function copyGuide(id: string, cmd: string) {
+  navigator.clipboard.writeText(cmd)
+  copiedGuide.value = id
+  setTimeout(() => copiedGuide.value = null, 1500)
 }
 
 function formatBytes(b: number) {
@@ -159,6 +224,56 @@ function statusText(m: any) {
       <div class="panel-pad">
         <div class="text-xs uppercase tracking-[0.18em] text-slate-500">requests</div>
         <div class="mt-2 text-3xl font-semibold text-slate-100">{{ stats.requests.toLocaleString() }}</div>
+      </div>
+    </section>
+
+    <section class="mb-5 grid gap-5 xl:grid-cols-2">
+      <div class="panel-pad">
+        <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-900 pb-3">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">mirror acceleration</h2>
+            <p class="mt-1 text-xs text-slate-600">复制命令后把示例包名或镜像名替换成你的目标。</p>
+          </div>
+          <span class="tag tag-ok">packages</span>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2">
+          <article v-for="item in mirrorUsage" :key="item.title" class="border border-slate-900 bg-black/20 p-3">
+            <div class="mb-2 flex items-start justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-slate-100">{{ item.title }}</h3>
+                <p class="mt-1 text-xs text-slate-600">{{ item.desc }}</p>
+              </div>
+              <button class="btn" @click="copyGuide(`mirror-${item.title}`, item.cmd)">
+                {{ copiedGuide === `mirror-${item.title}` ? 'copied' : 'copy' }}
+              </button>
+            </div>
+            <code class="code-line block overflow-x-auto whitespace-nowrap">{{ item.cmd }}</code>
+          </article>
+        </div>
+      </div>
+
+      <div class="panel-pad">
+        <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-900 pb-3">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">git acceleration</h2>
+            <p class="mt-1 text-xs text-slate-600">GitHub 走 /gh/，GitLab 走 /gl/，支持 clone、archive 和 raw。</p>
+          </div>
+          <span class="tag tag-ok">git</span>
+        </div>
+        <div class="grid gap-3">
+          <article v-for="item in gitUsage" :key="item.title" class="border border-slate-900 bg-black/20 p-3">
+            <div class="mb-2 flex items-start justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-slate-100">{{ item.title }}</h3>
+                <p class="mt-1 text-xs text-slate-600">{{ item.desc }}</p>
+              </div>
+              <button class="btn" @click="copyGuide(`git-${item.title}`, item.cmd)">
+                {{ copiedGuide === `git-${item.title}` ? 'copied' : 'copy' }}
+              </button>
+            </div>
+            <code class="code-line block overflow-x-auto whitespace-nowrap">{{ item.cmd }}</code>
+          </article>
+        </div>
       </div>
     </section>
 

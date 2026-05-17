@@ -332,7 +332,7 @@ curl http://<VPS>:8080/gh/user/repo/raw/branch/file.txt
 
 Dashboard 采用极客轻量控制台风格，面向开发者高效扫读：
 
-- Dashboard：镜像健康状态、启用统计、轻量流量趋势、最近访问日志、使用命令复制
+- Dashboard：镜像健康状态、启用统计、镜像/Git 加速用法卡片、轻量流量趋势、最近访问日志、使用命令复制
 - Mirrors：镜像启停、上游地址修改、缓存 TTL 查看
 - Git Proxy：GitHub / GitLab clone、archive、raw 命令生成与复制
 - Search：npm、Docker Hub、PyPI 搜索与安装命令复制
