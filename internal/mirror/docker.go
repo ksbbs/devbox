@@ -41,7 +41,7 @@ func (d *DockerMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (d *DockerMirror) HealthCheck() error {
-	resp, err := http.Get(d.upstream + "/v2/")
+	resp, err := HealthGet(d.upstream + "/v2/")
 	if err != nil {
 		return fmt.Errorf("docker upstream unreachable: %w", err)
 	}

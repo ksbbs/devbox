@@ -40,7 +40,7 @@ func (p *PypiMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (p *PypiMirror) HealthCheck() error {
-	resp, err := http.Get(p.upstream + "/")
+	resp, err := HealthGet(p.upstream + "/")
 	if err != nil {
 		return fmt.Errorf("pypi upstream unreachable: %w", err)
 	}

@@ -40,7 +40,7 @@ func (g *GhcrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (g *GhcrMirror) HealthCheck() error {
-	resp, err := http.Get(g.upstream + "/v2/")
+	resp, err := HealthGet(g.upstream + "/v2/")
 	if err != nil {
 		return fmt.Errorf("ghcr upstream unreachable: %w", err)
 	}

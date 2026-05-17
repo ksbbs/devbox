@@ -52,7 +52,7 @@ func (n *NpmMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (n *NpmMirror) HealthCheck() error {
-	resp, err := http.Get(n.upstream + "/")
+	resp, err := HealthGet(n.upstream + "/")
 	if err != nil {
 		return fmt.Errorf("npm upstream unreachable: %w", err)
 	}

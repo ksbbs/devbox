@@ -41,7 +41,7 @@ func (h *HfMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (h *HfMirror) HealthCheck() error {
-	resp, err := http.Get(h.upstream + "/")
+	resp, err := HealthGet(h.upstream + "/")
 	if err != nil {
 		return fmt.Errorf("huggingface upstream unreachable: %w", err)
 	}

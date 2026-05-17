@@ -40,7 +40,7 @@ func (g *GithubAPIMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (g *GithubAPIMirror) HealthCheck() error {
-	resp, err := http.Get(g.upstream + "/rate_limit")
+	resp, err := HealthGet(g.upstream + "/rate_limit")
 	if err != nil {
 		return fmt.Errorf("ghapi upstream unreachable: %w", err)
 	}

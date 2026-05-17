@@ -40,7 +40,7 @@ func (q *QuayMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (q *QuayMirror) HealthCheck() error {
-	resp, err := http.Get(q.upstream + "/v2/")
+	resp, err := HealthGet(q.upstream + "/v2/")
 	if err != nil {
 		return fmt.Errorf("quay upstream unreachable: %w", err)
 	}

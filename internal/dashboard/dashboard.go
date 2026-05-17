@@ -2,9 +2,11 @@ package dashboard
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"devbox/internal/mirror"
@@ -16,6 +18,10 @@ type Dashboard struct {
 	authToken string
 	publicURL string
 	rlConfig  RateLimitConfigAccessor
+
+	healthMu     sync.RWMutex
+	healthCache  map[string]cachedHealth
+	healthReady  bool
 }
 
 type RateLimitConfigAccessor interface {
@@ -34,12 +40,63 @@ type RateLimitConfigView struct {
 	Blacklist []string `json:"blacklist"`
 }
 
+type cachedHealth struct {
+	status string
+	err    string
+}
+
 func New(st *store.Store, authToken string, publicURL string) *Dashboard {
-	return &Dashboard{store: st, authToken: authToken, publicURL: publicURL}
+	d := &Dashboard{
+		store:       st,
+		authToken:   authToken,
+		publicURL:   publicURL,
+		healthCache: make(map[string]cachedHealth),
+	}
+	go d.backgroundHealthCheck()
+	return d
 }
 
 func (d *Dashboard) SetRateLimitConfigAccessor(rl RateLimitConfigAccessor) {
 	d.rlConfig = rl
+}
+
+func (d *Dashboard) backgroundHealthCheck() {
+	d.runHealthChecks()
+	ticker := time.NewTicker(60 * time.Second)
+	for range ticker.C {
+		d.runHealthChecks()
+	}
+}
+
+func (d *Dashboard) runHealthChecks() {
+	mirrors := mirror.All()
+	type result struct {
+		name   string
+		status string
+		err    string
+	}
+	ch := make(chan result, len(mirrors))
+	for _, m := range mirrors {
+		go func(m mirror.Mirror) {
+			r := result{name: m.Name(), status: "healthy"}
+			if err := m.HealthCheck(); err != nil {
+				r.status = "unhealthy"
+				r.err = err.Error()
+			}
+			d.store.RecordHealthCheck(m.Name(), r.status, r.err)
+			ch <- r
+		}(m)
+	}
+	cache := make(map[string]cachedHealth, len(mirrors))
+	for range mirrors {
+		r := <-ch
+		cache[r.name] = cachedHealth{status: r.status, err: r.err}
+	}
+	d.healthMu.Lock()
+	d.healthCache = cache
+	d.healthReady = true
+	d.healthMu.Unlock()
+	log.Printf("[health] background check complete: %d mirrors", len(cache))
 }
 
 func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,15 +130,18 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	mirrors := mirror.All()
 	statuses := make([]map[string]interface{}, 0)
+
+	d.healthMu.RLock()
+	hc := d.healthCache
+	d.healthMu.RUnlock()
+
 	for _, m := range mirrors {
-		err := m.HealthCheck()
 		status := "healthy"
 		errMsg := ""
-		if err != nil {
-			status = "unhealthy"
-			errMsg = err.Error()
+		if cached, ok := hc[m.Name()]; ok {
+			status = cached.status
+			errMsg = cached.err
 		}
-		d.store.RecordHealthCheck(m.Name(), status, errMsg)
 		entry := map[string]interface{}{
 			"name":     m.Name(),
 			"pattern":  m.Pattern(),
@@ -227,6 +287,18 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 
 func (d *Dashboard) PublicConfigHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"publicUrl": d.publicURL})
+}
+
+func (d *Dashboard) AuthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if d.authToken == "" {
+		writeJSON(w, map[string]bool{"authRequired": false})
+		return
+	}
+	if d.checkAuth(r) {
+		writeJSON(w, map[string]bool{"authRequired": true, "authenticated": true})
+		return
+	}
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
 func (d *Dashboard) LoginHandler(w http.ResponseWriter, r *http.Request) {

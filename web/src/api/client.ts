@@ -45,8 +45,8 @@ export async function login(t: string) {
 
 export async function checkAuthRequired() {
   try {
-    await api.get('/status')
-    return false // no auth required (got through without token or token is valid)
+    await api.get('/auth/check')
+    return false
   } catch (e: any) {
     if (e.response?.status === 401) return true
     return false

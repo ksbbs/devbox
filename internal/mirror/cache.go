@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -39,7 +40,7 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 		lines := string(hdrData)
 		for _, line := range splitLines(lines) {
 			if idx := indexOf(line, ':'); idx > 0 {
-				hdr.Set(line[:idx], line[idx+1:])
+				hdr.Set(line[:idx], strings.TrimSpace(line[idx+1:]))
 			}
 		}
 	}
@@ -102,7 +103,7 @@ func (c *Cache) IsExpired(key string) bool {
 }
 
 func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream string, ttl time.Duration) {
-	key := r.URL.Path + "?" + r.URL.RawQuery
+	key := upstream + r.URL.Path + "?" + r.URL.RawQuery
 
 	if !c.IsExpired(key) {
 		data, hdr, ok := c.Get(key)
@@ -118,7 +119,11 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		}
 	}
 
-	resp, err := http.Get(upstream + r.URL.Path)
+	target := upstream + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	resp, err := http.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
 		return
@@ -131,9 +136,11 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		return
 	}
 
-	// copy response headers
 	respHdr := resp.Header.Clone()
-	c.Set(key, body, respHdr, ttl)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.Set(key, body, respHdr, ttl)
+	}
 
 	for k, vv := range respHdr {
 		for _, v := range vv {

@@ -50,11 +50,8 @@ func (gp *GitProxy) proxyGitHub(w http.ResponseWriter, r *http.Request, path str
 		gp.proxyArchive(w, r, gp.githubUpstream, path)
 	} else if isRawRequest(path) {
 		gp.proxyRaw(w, r, path)
-	} else if isSmartHTTP(r) {
-		gp.proxySmartHTTP(w, r, gp.githubUpstream, path)
 	} else {
-		// Regular git clone via redirect
-		gp.proxyRedirect(w, r, gp.githubUpstream, path)
+		gp.proxySmartHTTP(w, r, gp.githubUpstream, path)
 	}
 }
 
@@ -72,14 +69,6 @@ func isBlobRequest(path string) bool {
 
 func isRawRequest(path string) bool {
 	return strings.Contains(path, "/raw/")
-}
-
-func isSmartHTTP(r *http.Request) bool {
-	q := r.URL.Query()
-	return q.Get("service") == "git-upload-pack" ||
-		q.Get("service") == "git-receive-pack" ||
-		strings.HasSuffix(r.URL.Path, "info/refs") ||
-		strings.HasSuffix(r.URL.Path, "git-upload-pack")
 }
 
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
@@ -142,15 +131,6 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
-}
-
-func (gp *GitProxy) proxyRedirect(w http.ResponseWriter, r *http.Request, upstream, path string) {
-	// For simple git clone, just redirect to upstream
-	target := upstream + path + ".git"
-	if !strings.HasSuffix(path, ".git") {
-		target = upstream + path + ".git/info/refs?service=git-upload-pack"
-	}
-	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func copyResponseHeaders(w http.ResponseWriter, resp *http.Response) {

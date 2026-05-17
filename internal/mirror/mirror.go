@@ -1,8 +1,11 @@
 package mirror
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type Mirror interface {
@@ -15,6 +18,18 @@ type Mirror interface {
 	IsEnabled() bool
 	SetEnabled(enabled bool)
 	CacheTTL() string
+}
+
+var healthClient = &http.Client{Timeout: 5 * time.Second}
+
+func HealthGet(url string) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	return healthClient.Do(req)
 }
 
 var registry = struct {

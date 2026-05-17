@@ -40,7 +40,7 @@ func (c *CranMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (c *CranMirror) HealthCheck() error {
-	resp, err := http.Get(c.upstream + "/")
+	resp, err := HealthGet(c.upstream + "/")
 	if err != nil {
 		return fmt.Errorf("cran upstream unreachable: %w", err)
 	}

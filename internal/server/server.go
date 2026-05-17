@@ -133,6 +133,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config/ratelimit", s.dash.RateLimitConfigHandler)
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
+	mux.HandleFunc("/api/auth/check", s.dash.AuthCheckHandler)
 	mux.HandleFunc("/api/search", s.search.Search)
 
 	// Docker v2 registry API — proxy handles auth transparently

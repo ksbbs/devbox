@@ -40,7 +40,7 @@ func (g *GolangMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 }
 
 func (g *GolangMirror) HealthCheck() error {
-	resp, err := http.Get(g.upstream + "/github.com/golang/go/@v/list")
+	resp, err := HealthGet(g.upstream + "/github.com/golang/go/@v/list")
 	if err != nil {
 		return fmt.Errorf("golang upstream unreachable: %w", err)
 	}
