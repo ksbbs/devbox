@@ -6,24 +6,37 @@
 
 ## 功能
 
-| 功能 | 说明 |
-|------|------|
-| npm 镜像 | 代理 `https://registry.npmjs.org` |
-| pip 镜像 | 代理 `https://pypi.org/simple` |
-| Docker 镜像 | 代理 `https://registry-1.docker.io`（含 v2 token 认证代理） |
-| GHCR 镜像 | 代理 `https://ghcr.io`（GitHub Container Registry） |
-| Quay 镜像 | 代理 `https://quay.io`（Red Hat Container Registry） |
-| MCR 镜像 | 代理 `https://mcr.microsoft.com`（Microsoft Container Registry） |
-| Go 模块镜像 | 代理 `https://proxy.golang.org` |
-| CRAN 镜像 | 代理 `https://cran.r-project.org` |
-| HuggingFace 加速 | 代理 `https://huggingface.co` 模型文件下载 |
-| Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
-| GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
-| Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
-| 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI 包 |
-| IP 限流 | 滚动时间窗口限流防滥用，白名单免限速 |
-| Web Dashboard | 极客轻量控制台风格，提供状态总览、轻量流量趋势、访问日志、配置管理、使用指南 |
-| 日志自动清除 | 流量日志保留可配置天数（默认 30 天），过期自动清理 |
+| 功能             | 说明                                                                           |
+| ---------------- | ------------------------------------------------------------------------------ |
+| npm 镜像         | 代理 `https://registry.npmjs.org`                                              |
+| pip 镜像         | 代理 `https://pypi.org/simple`                                                 |
+| Docker 镜像      | 代理 `https://registry-1.docker.io`（含 v2 token 认证代理）                    |
+| GHCR 镜像        | 代理 `https://ghcr.io`（GitHub Container Registry）                            |
+| Quay 镜像        | 代理 `https://quay.io`（Red Hat Container Registry）                           |
+| MCR 镜像         | 代理 `https://mcr.microsoft.com`（Microsoft Container Registry）               |
+| Go 模块镜像      | 代理 `https://proxy.golang.org`                                                |
+| CRAN 镜像        | 代理 `https://cran.r-project.org`                                              |
+| HuggingFace 加速 | 代理 `https://huggingface.co` 模型文件下载                                     |
+| Conda 镜像       | 代理 `https://repo.anaconda.com`                                               |
+| RubyGems 镜像    | 代理 `https://rubygems.org`                                                    |
+| Cargo 镜像       | 代理 crates.io 包下载                                                          |
+| NuGet 镜像       | 代理 `https://api.nuget.org/v3/index.json`                                     |
+| APT 镜像         | 代理 Debian APT 仓库                                                           |
+| Alpine 镜像      | 代理 Alpine Linux APK 仓库                                                     |
+| Homebrew 镜像    | 代理 Homebrew bottle 下载                                                      |
+| Git Clone 加速   | 代理 GitHub / GitLab 的 clone、archive、raw 请求                               |
+| Git 缓存         | Git archive、raw、smart HTTP 请求支持缓存，减少重复上游访问                    |
+| GitHub API 加速  | 代理 `https://api.github.com`（解决国内 GitHub API 超时）                      |
+| Docker v2 Auth   | Token 认证代理，让 `docker pull` 不依赖直接访问上游                            |
+| 镜像搜索         | Dashboard 支持 npm、Docker Hub、PyPI、Conda、RubyGems、Cargo、NuGet 搜索与分页 |
+| IP 限流          | 滚动时间窗口限流防滥用，白名单免限速                                           |
+| LRU 缓存淘汰     | 缓存目录支持最大容量限制，按访问时间淘汰旧文件                                 |
+| Prometheus 指标  | `/metrics` 暴露缓存命中、未命中、命中率、镜像数量等指标                        |
+| 健康告警         | 镜像健康状态变化支持日志或 Webhook 告警，内置 cooldown 去重                    |
+| 配置热更新       | 配置文件变更后自动加载，镜像、限流与 Git 代理配置无需重启即可生效              |
+| Web Dashboard    | 极客轻量控制台风格，提供状态总览、轻量流量趋势、访问日志、配置管理、使用指南   |
+| 流量聚合         | 访问流量支持明细、小时、日、周粒度查看                                         |
+| 日志自动清除     | 流量日志保留可配置天数（默认 30 天），过期自动清理                             |
 
 ## 快速部署
 
@@ -91,8 +104,8 @@ docker run -d -p 8080:8080 -v devbox-data:/data \
 ```yaml
 server:
   port: 8080
-  auth_token: ""                # Dashboard 鉴权 token，空则不鉴权
-  public_url: ""                # 公网访问地址，如 https://dev.example.com
+  auth_token: "" # Dashboard 鉴权 token，空则不鉴权
+  public_url: "" # 公网访问地址，如 https://dev.example.com
 
 mirrors:
   npm:
@@ -106,7 +119,7 @@ mirrors:
   docker:
     enabled: true
     upstream: "https://registry-1.docker.io"
-    cache_ttl: "0"              # 0 = 永不过期
+    cache_ttl: "0" # 0 = 永不过期
   golang:
     enabled: true
     upstream: "https://proxy.golang.org"
@@ -135,18 +148,47 @@ mirrors:
     enabled: true
     upstream: "https://huggingface.co"
     cache_ttl: "7d"
+  conda:
+    enabled: true
+    upstream: "https://repo.anaconda.com"
+    cache_ttl: "30d"
+  rubygems:
+    enabled: true
+    upstream: "https://rubygems.org"
+    cache_ttl: "7d"
+  cargo:
+    enabled: true
+    upstream: "https://static.crates.io/crates"
+    cache_ttl: "7d"
+  nuget:
+    enabled: true
+    upstream: "https://api.nuget.org/v3/index.json"
+    cache_ttl: "7d"
+  apt:
+    enabled: true
+    upstream: "https://deb.debian.org/debian"
+    cache_ttl: "0"
+  alpine:
+    enabled: true
+    upstream: "https://dl-cdn.alpinelinux.org/alpine"
+    cache_ttl: "0"
+  homebrew:
+    enabled: true
+    upstream: "https://ghcr.io/v2/homebrew/core"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true
   github_upstream: "https://github.com"
   gitlab_upstream: "https://gitlab.com"
+  raw_upstream: "https://raw.githubusercontent.com"
   cache_ttl: "7d"
 
 rate_limit:
-  enabled: false               # 启用 IP 限流
-  rate: 500                    # 每个 IP 在滚动时间窗口内最大请求数
-  interval: "3h"               # 滚动时间窗口长度（如 30m、3h、1d）
-  whitelist: []                # 白名单 IP（免限速）
+  enabled: false # 启用 IP 限流
+  rate: 500 # 每个 IP 在滚动时间窗口内最大请求数
+  interval: "3h" # 滚动时间窗口长度（如 30m、3h、1d）
+  whitelist: [] # 白名单 IP（免限速）
 
 cache:
   dir: "/data/cache"
@@ -154,8 +196,13 @@ cache:
 
 logging:
   level: "info"
+  format: "text"
   access_log: true
-  retention_days: 30              # 流量日志保留天数
+  retention_days: 30 # 流量日志保留天数
+
+alerts:
+  webhook_url: "" # 为空则写入日志；设置后向 Webhook 发送健康告警
+  cooldown: "5m" # 同类告警去重冷却时间
 ```
 
 ### 环境变量覆盖
@@ -176,6 +223,10 @@ DEVBOX_RATE_LIMIT_RATE=1000
 DEVBOX_RATE_LIMIT_INTERVAL=3h
 ```
 
+### 配置热更新
+
+DevBox 会每 30 秒检测配置文件修改时间。通过 Dashboard 或手动修改配置文件后，镜像启停、上游地址、缓存 TTL、限流规则和 Git 代理配置会自动应用，无需重启服务。
+
 ### Web UI 鉴权
 
 设置 `AUTH_TOKEN` 环境变量后，访问 Dashboard 需先输入密码登录：
@@ -189,6 +240,7 @@ docker compose up -d
 ```
 
 登录流程：
+
 1. 浏览器访问 `https://dev.example.com`，自动跳转到登录页
 2. 输入 `.env` 中设置的 `AUTH_TOKEN` 值作为密码
 3. 登录成功后进入 Dashboard，右上角可点击「登出」
@@ -312,6 +364,51 @@ go env -w GOPROXY=http://<VPS>:8080/golang,https://proxy.golang.org,direct
 options(repos = c(CRAN = "http://<VPS>:8080/cran"))
 ```
 
+### Conda 镜像加速
+
+```bash
+conda config --add channels http://<VPS>:8080/conda
+```
+
+### RubyGems 镜像加速
+
+```bash
+gem sources --add http://<VPS>:8080/rubygems --remove https://rubygems.org/
+```
+
+### Cargo 镜像加速
+
+```bash
+export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+export CARGO_REGISTRIES_CRATES_IO_INDEX=http://<VPS>:8080/cargo
+```
+
+### NuGet 镜像加速
+
+```bash
+dotnet nuget add source http://<VPS>:8080/nuget/index.json -n devbox
+```
+
+### APT 镜像加速
+
+```bash
+echo 'deb http://<VPS>:8080/apt stable main' | sudo tee /etc/apt/sources.list.d/devbox.list
+sudo apt update
+```
+
+### Alpine APK 镜像加速
+
+```bash
+sudo sed -i 's|https://dl-cdn.alpinelinux.org/alpine|http://<VPS>:8080/alpine|g' /etc/apk/repositories
+sudo apk update
+```
+
+### Homebrew 镜像加速
+
+```bash
+export HOMEBREW_BOTTLE_DOMAIN=http://<VPS>:8080/homebrew
+```
+
 ### Git Clone 加速
 
 ```bash
@@ -332,11 +429,28 @@ curl http://<VPS>:8080/gh/user/repo/raw/branch/file.txt
 
 Dashboard 采用极客轻量控制台风格，面向开发者高效扫读：
 
-- Dashboard：镜像健康状态、启用统计、镜像/Git 加速用法卡片、轻量流量趋势、最近访问日志（包含镜像、Docker Registry 与 Git 代理请求）、使用命令复制
-- Mirrors：镜像启停、上游地址修改、缓存 TTL 查看
+- Dashboard：镜像健康状态、启用统计、镜像/Git 加速用法卡片、流量趋势、最近访问日志（包含镜像、Docker Registry 与 Git 代理请求）、使用命令复制
+- Mirrors：镜像启停、上游地址修改、缓存 TTL 查看与保存
 - Git Proxy：GitHub / GitLab clone、archive、raw 命令生成与复制
-- Search：npm、Docker Hub、PyPI 搜索与安装命令复制
+- Search：npm、Docker Hub、PyPI、Conda、RubyGems、Cargo、NuGet 搜索、分页与安装命令复制
+- Traffic：按明细、小时、日、周粒度查看访问流量
 - Settings：版本/运行信息、IP 限流白名单/黑名单配置
+
+## 监控与告警
+
+### Prometheus 指标
+
+访问 `/metrics` 可获取文本格式指标：
+
+```bash
+curl http://<VPS>:8080/metrics
+```
+
+当前包含缓存命中数、未命中数、命中率和注册镜像数量。
+
+### 健康告警
+
+后台健康检查会检测镜像从 healthy 变为 unhealthy，或从 unhealthy 恢复为 healthy 的状态变化。默认写入日志；配置 `alerts.webhook_url` 后会向 Webhook 发送 JSON 告警，并通过 `alerts.cooldown` 控制同类告警频率。
 
 ## 本地开发
 
@@ -362,4 +476,4 @@ docker run -d -p 8080:8080 -v devbox-data:/data devbox:latest
 ## 后续规划
 
 - Docker Compose 模板库
-- 健康监控与告警
+- 更多镜像源适配
