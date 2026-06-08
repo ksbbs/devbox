@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (a *AlpineMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	upstream := a.upstream
 	a.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/alpine"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/alpine")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

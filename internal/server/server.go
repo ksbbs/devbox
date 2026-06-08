@@ -51,6 +51,7 @@ var registries = map[string]registryInfo{
 
 type Server struct {
 	cfg         *config.Config
+	cfgMu       sync.RWMutex
 	configPath  string
 	cache       *mirror.Cache
 	gitProxy    *gitproxy.GitProxy
@@ -191,13 +192,15 @@ func (s *Server) Start() error {
 	go s.configWatcher()
 	go s.tokenCacheCleanup()
 
-	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
+	port, accessLog := s.serverConfigSnapshot()
+	rl := s.rateLimitConfigSnapshot()
+	addr := fmt.Sprintf(":%d", port)
 	slog.Info("DevBox starting", "addr", addr)
 
-	handler := logMiddleware(mux, s.cfg.Logging.AccessLog)
-	if s.limiter != nil {
+	handler := logMiddleware(mux, accessLog)
+	if s.getLimiter() != nil {
 		handler = s.rateLimitMiddleware(handler)
-		slog.Info("rate limiting enabled", "rate", s.cfg.RateLimit.Rate, "interval", s.cfg.RateLimit.Interval)
+		slog.Info("rate limiting enabled", "rate", rl.Rate, "interval", rl.Interval)
 	}
 	return http.ListenAndServe(addr, handler)
 }
@@ -342,7 +345,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		// Can't get token, return 401 with rewritten WWW-Authenticate
 		// to let Docker client try to authenticate itself
 		if wwAuth != "" {
-			proxyHost := s.cfg.Server.PublicURL
+			proxyHost := s.publicURL()
 			if proxyHost == "" {
 				proxyHost = "http://" + r.Host
 			}
@@ -597,13 +600,18 @@ func (s *Server) applyRuntimeConfig(cfg *config.Config) {
 	)
 
 	// Swap config atomically
+	s.cfgMu.Lock()
 	s.cfg = cfg
+	s.cfgMu.Unlock()
 }
 
 func (s *Server) saveConfig() error {
 	if s.configPath == "" {
 		return nil
 	}
+
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	for _, m := range mirror.All() {
 		existing, ok := s.cfg.Mirrors[m.Name()]
@@ -616,13 +624,6 @@ func (s *Server) saveConfig() error {
 		s.cfg.Mirrors[m.Name()] = existing
 	}
 
-	rl := s.dash.GetRateLimitConfig()
-	s.cfg.RateLimit.Enabled = rl.Enabled
-	s.cfg.RateLimit.Rate = rl.Rate
-	s.cfg.RateLimit.Interval = rl.Interval
-	s.cfg.RateLimit.Whitelist = rl.Whitelist
-	s.cfg.RateLimit.Blacklist = rl.Blacklist
-
 	if err := s.cfg.Save(s.configPath); err != nil {
 		slog.Error("config failed to persist", "error", err)
 		return err
@@ -632,51 +633,81 @@ func (s *Server) saveConfig() error {
 }
 
 func (s *Server) GetRateLimitConfig() dashboard.RateLimitConfigView {
+	rl := s.rateLimitConfigSnapshot()
 	return dashboard.RateLimitConfigView{
-		Enabled:   s.cfg.RateLimit.Enabled,
-		Rate:      s.cfg.RateLimit.Rate,
-		Interval:  s.cfg.RateLimit.Interval,
-		Whitelist: s.cfg.RateLimit.Whitelist,
-		Blacklist: s.cfg.RateLimit.Blacklist,
+		Enabled:   rl.Enabled,
+		Rate:      rl.Rate,
+		Interval:  rl.Interval,
+		Whitelist: rl.Whitelist,
+		Blacklist: rl.Blacklist,
 	}
 }
 
 func (s *Server) SetRateLimitEnabled(enabled bool) {
+	s.cfgMu.Lock()
 	s.cfg.RateLimit.Enabled = enabled
+	s.cfgMu.Unlock()
 	s.rebuildLimiter()
 }
 
 func (s *Server) SetRateLimitRate(rate int) {
+	s.cfgMu.Lock()
 	s.cfg.RateLimit.Rate = rate
+	s.cfgMu.Unlock()
 	s.rebuildLimiter()
 }
 
 func (s *Server) SetRateLimitInterval(interval string) {
 	if d, err := config.ParseDuration(interval); err == nil {
+		s.cfgMu.Lock()
 		s.cfg.RateLimit.Interval = interval
 		s.cfg.RateLimit.IntervalDur = d
+		s.cfgMu.Unlock()
 		s.rebuildLimiter()
 	}
 }
 
 func (s *Server) SetRateLimitWhitelist(list []string) {
+	s.cfgMu.Lock()
 	s.cfg.RateLimit.Whitelist = list
+	s.cfgMu.Unlock()
 	s.rebuildLimiter()
 }
 
 func (s *Server) SetRateLimitBlacklist(list []string) {
+	s.cfgMu.Lock()
 	s.cfg.RateLimit.Blacklist = list
+	s.cfgMu.Unlock()
 	s.rebuildLimiter()
 }
 
 func (s *Server) rebuildLimiter() {
+	rl := s.rateLimitConfigSnapshot()
 	s.limiterMu.Lock()
 	defer s.limiterMu.Unlock()
-	if !s.cfg.RateLimit.Enabled {
+	if !rl.Enabled {
 		s.limiter = nil
 		return
 	}
-	s.limiter = ratelimit.New(s.cfg.RateLimit.Rate, s.cfg.RateLimit.IntervalDur, s.cfg.RateLimit.Whitelist, s.cfg.RateLimit.Blacklist)
+	s.limiter = ratelimit.New(rl.Rate, rl.IntervalDur, rl.Whitelist, rl.Blacklist)
+}
+
+func (s *Server) serverConfigSnapshot() (int, bool) {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.Server.Port, s.cfg.Logging.AccessLog
+}
+
+func (s *Server) publicURL() string {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.Server.PublicURL
+}
+
+func (s *Server) rateLimitConfigSnapshot() config.RateLimitConfig {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.RateLimit
 }
 
 func (s *Server) getLimiter() *ratelimit.Limiter {
@@ -726,13 +757,20 @@ func (s *Server) cacheCleanup() {
 func (s *Server) trafficCleanup() {
 	ticker := time.NewTicker(6 * time.Hour)
 	for range ticker.C {
-		n, err := s.store.PurgeOldTraffic(s.cfg.Logging.RetentionDays)
+		retentionDays := s.loggingRetentionDays()
+		n, err := s.store.PurgeOldTraffic(retentionDays)
 		if err != nil {
 			slog.Error("traffic cleanup error", "error", err)
 		} else if n > 0 {
-			slog.Info("purged old traffic records", "count", n, "retention_days", s.cfg.Logging.RetentionDays)
+			slog.Info("purged old traffic records", "count", n, "retention_days", retentionDays)
 		}
 	}
+}
+
+func (s *Server) loggingRetentionDays() int {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.Logging.RetentionDays
 }
 
 func (s *Server) Close() {

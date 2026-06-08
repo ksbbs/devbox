@@ -427,7 +427,11 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 		d.rlConfig.SetRateLimitWhitelist(req.Whitelist)
 		d.rlConfig.SetRateLimitBlacklist(req.Blacklist)
 		if d.saveConfig != nil {
-			d.saveConfig()
+			if err := d.saveConfig(); err != nil {
+				slog.Error("failed to persist rate limit config", "error", err)
+				http.Error(w, "persist_failed", http.StatusInternalServerError)
+				return
+			}
 		}
 		writeJSON(w, d.rlConfig.GetRateLimitConfig())
 		return
