@@ -90,7 +90,7 @@ func (h *HfMirror) SetCacheTTL(ttl string) error {
 }
 
 func (h *HfMirror) HealthCheck() error {
-	resp, err := HealthGet(h.upstream + "/")
+	resp, err := HealthGet(h.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("huggingface upstream unreachable: %w", err)
 	}

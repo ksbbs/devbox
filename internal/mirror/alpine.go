@@ -89,7 +89,7 @@ func (a *AlpineMirror) SetCacheTTL(ttl string) error {
 }
 
 func (a *AlpineMirror) HealthCheck() error {
-	resp, err := HealthGet(a.upstream + "/")
+	resp, err := HealthGet(a.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("alpine upstream unreachable: %w", err)
 	}

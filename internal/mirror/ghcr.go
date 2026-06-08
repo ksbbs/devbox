@@ -89,7 +89,7 @@ func (g *GhcrMirror) SetCacheTTL(ttl string) error {
 }
 
 func (g *GhcrMirror) HealthCheck() error {
-	resp, err := HealthGet(g.upstream + "/v2/")
+	resp, err := HealthGet(g.Upstream() + "/v2/")
 	if err != nil {
 		return fmt.Errorf("ghcr upstream unreachable: %w", err)
 	}

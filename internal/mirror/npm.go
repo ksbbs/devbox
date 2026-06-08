@@ -100,7 +100,7 @@ func (n *NpmMirror) SetCacheTTL(ttl string) error {
 }
 
 func (n *NpmMirror) HealthCheck() error {
-	resp, err := HealthGet(n.upstream + "/")
+	resp, err := HealthGet(n.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("npm upstream unreachable: %w", err)
 	}

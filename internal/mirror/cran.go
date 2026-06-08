@@ -90,7 +90,7 @@ func (c *CranMirror) SetCacheTTL(ttl string) error {
 }
 
 func (c *CranMirror) HealthCheck() error {
-	resp, err := HealthGet(c.upstream + "/")
+	resp, err := HealthGet(c.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("cran upstream unreachable: %w", err)
 	}

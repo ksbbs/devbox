@@ -90,7 +90,7 @@ func (p *PypiMirror) SetCacheTTL(ttl string) error {
 }
 
 func (p *PypiMirror) HealthCheck() error {
-	resp, err := HealthGet(p.upstream + "/")
+	resp, err := HealthGet(p.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("pypi upstream unreachable: %w", err)
 	}

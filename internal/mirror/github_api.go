@@ -90,7 +90,7 @@ func (g *GithubAPIMirror) SetCacheTTL(ttl string) error {
 }
 
 func (g *GithubAPIMirror) HealthCheck() error {
-	resp, err := HealthGet(g.upstream + "/rate_limit")
+	resp, err := HealthGet(g.Upstream() + "/rate_limit")
 	if err != nil {
 		return fmt.Errorf("ghapi upstream unreachable: %w", err)
 	}

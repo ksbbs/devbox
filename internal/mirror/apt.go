@@ -89,7 +89,7 @@ func (a *AptMirror) SetCacheTTL(ttl string) error {
 }
 
 func (a *AptMirror) HealthCheck() error {
-	resp, err := HealthGet(a.upstream + "/")
+	resp, err := HealthGet(a.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("apt upstream unreachable: %w", err)
 	}

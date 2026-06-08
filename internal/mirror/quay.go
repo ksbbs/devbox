@@ -89,7 +89,7 @@ func (q *QuayMirror) SetCacheTTL(ttl string) error {
 }
 
 func (q *QuayMirror) HealthCheck() error {
-	resp, err := HealthGet(q.upstream + "/v2/")
+	resp, err := HealthGet(q.Upstream() + "/v2/")
 	if err != nil {
 		return fmt.Errorf("quay upstream unreachable: %w", err)
 	}

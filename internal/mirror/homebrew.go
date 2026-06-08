@@ -89,7 +89,7 @@ func (h *HomebrewMirror) SetCacheTTL(ttl string) error {
 }
 
 func (h *HomebrewMirror) HealthCheck() error {
-	resp, err := HealthGet(h.upstream + "/")
+	resp, err := HealthGet(h.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("homebrew upstream unreachable: %w", err)
 	}

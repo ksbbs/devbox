@@ -89,7 +89,7 @@ func (d *DockerMirror) SetCacheTTL(ttl string) error {
 }
 
 func (d *DockerMirror) HealthCheck() error {
-	resp, err := HealthGet(d.upstream + "/v2/")
+	resp, err := HealthGet(d.Upstream() + "/v2/")
 	if err != nil {
 		return fmt.Errorf("docker upstream unreachable: %w", err)
 	}

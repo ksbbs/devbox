@@ -89,7 +89,7 @@ func (m *McrMirror) SetCacheTTL(ttl string) error {
 }
 
 func (m *McrMirror) HealthCheck() error {
-	resp, err := HealthGet(m.upstream + "/v2/")
+	resp, err := HealthGet(m.Upstream() + "/v2/")
 	if err != nil {
 		return fmt.Errorf("mcr upstream unreachable: %w", err)
 	}

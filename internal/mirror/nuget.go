@@ -91,7 +91,7 @@ func (n *NuGetMirror) SetCacheTTL(ttl string) error {
 }
 
 func (n *NuGetMirror) HealthCheck() error {
-	resp, err := HealthGet(n.upstream + "/")
+	resp, err := HealthGet(n.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("nuget upstream unreachable: %w", err)
 	}

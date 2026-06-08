@@ -90,7 +90,7 @@ func (c *CargoMirror) SetCacheTTL(ttl string) error {
 }
 
 func (c *CargoMirror) HealthCheck() error {
-	resp, err := HealthGet(c.upstream + "/")
+	resp, err := HealthGet(c.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("cargo upstream unreachable: %w", err)
 	}

@@ -90,7 +90,7 @@ func (c *CondaMirror) SetCacheTTL(ttl string) error {
 }
 
 func (c *CondaMirror) HealthCheck() error {
-	resp, err := HealthGet(c.upstream + "/")
+	resp, err := HealthGet(c.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("conda upstream unreachable: %w", err)
 	}

@@ -91,7 +91,7 @@ func (rg *RubyGemsMirror) SetCacheTTL(ttl string) error {
 }
 
 func (rg *RubyGemsMirror) HealthCheck() error {
-	resp, err := HealthGet(rg.upstream + "/")
+	resp, err := HealthGet(rg.Upstream() + "/")
 	if err != nil {
 		return fmt.Errorf("rubygems upstream unreachable: %w", err)
 	}
