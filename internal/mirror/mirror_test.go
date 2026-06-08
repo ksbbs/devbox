@@ -188,6 +188,28 @@ func TestHomebrewHealthCheckUsesRegistryBase(t *testing.T) {
 	}
 }
 
+func TestHomebrewHealthCheckNormalizesRegistryBaseNoSlash(t *testing.T) {
+	var gotPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if gotPath != "/v2/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	m := &HomebrewMirror{}
+	m.SetUpstream(ts.URL + "/v2")
+	if err := m.HealthCheck(); err != nil {
+		t.Fatalf("HealthCheck failed: %v", err)
+	}
+	if gotPath != "/v2/" {
+		t.Fatalf("expected registry base health path, got %q", gotPath)
+	}
+}
+
 func TestApplyConfig(t *testing.T) {
 	m := &testMirror{}
 	cfg := config.MirrorConfig{

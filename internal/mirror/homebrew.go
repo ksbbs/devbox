@@ -91,7 +91,11 @@ func (h *HomebrewMirror) SetCacheTTL(ttl string) error {
 
 func (h *HomebrewMirror) HealthCheck() error {
 	upstream := h.Upstream()
-	if idx := strings.Index(upstream, "/v2/"); idx >= 0 {
+	if strings.HasSuffix(upstream, "/v2/") {
+		// Keep registry base as-is.
+	} else if strings.HasSuffix(upstream, "/v2") {
+		upstream += "/"
+	} else if idx := strings.Index(upstream, "/v2/"); idx >= 0 {
 		upstream = upstream[:idx] + "/v2/"
 	} else {
 		upstream = strings.TrimRight(upstream, "/") + "/v2/"
