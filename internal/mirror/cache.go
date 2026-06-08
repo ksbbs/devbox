@@ -5,16 +5,24 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type Cache struct {
-	dir      string
-	maxBytes int64
+	dir       string
+	maxBytes  int64
+	usedBytes int64
+	mu        sync.Mutex
+	hits      atomic.Int64
+	misses    atomic.Int64
 }
 
 func NewCache(dir string, maxBytes int64) *Cache {
@@ -24,13 +32,18 @@ func NewCache(dir string, maxBytes int64) *Cache {
 func (c *Cache) Dir() string { return c.dir }
 
 func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	path := c.keyPath(key)
 	info, err := os.Stat(path)
 	if err != nil {
+		c.misses.Add(1)
 		return nil, nil, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		c.misses.Add(1)
 		return nil, nil, false
 	}
 	hdrPath := path + ".hdr"
@@ -44,19 +57,27 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 			}
 		}
 	}
-	if info.Size() > c.maxBytes {
+	if c.maxBytes > 0 && info.Size() > c.maxBytes {
 		os.Remove(path)
 		os.Remove(hdrPath)
+		c.misses.Add(1)
 		return nil, nil, false
 	}
+	c.hits.Add(1)
 	return data, hdr, true
 }
 
 func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration) {
-	if ttl == 0 {
-		// never expire - just store
-	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	path := c.keyPath(key)
+
+	// Subtract old file size if overwriting
+	if info, err := os.Stat(path); err == nil {
+		c.usedBytes -= info.Size()
+	}
+
 	os.MkdirAll(filepath.Dir(path), 0755)
 
 	f, err := os.Create(path)
@@ -66,7 +87,6 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	f.Write(data)
 	f.Close()
 
-	// store headers
 	hdrPath := path + ".hdr"
 	hf, err := os.Create(hdrPath)
 	if err != nil {
@@ -79,7 +99,6 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	}
 	hf.Close()
 
-	// set expiry if ttl > 0
 	if ttl > 0 {
 		expPath := path + ".exp"
 		ef, err := os.Create(expPath)
@@ -89,13 +108,74 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
 		ef.Close()
 	}
+
+	c.usedBytes += int64(len(data))
+
+	if c.maxBytes > 0 && c.usedBytes > c.maxBytes {
+		c.evictLRU()
+	}
+}
+
+func (c *Cache) evictLRU() {
+	target := int64(float64(c.maxBytes) * 0.8)
+	if target <= 0 {
+		target = c.maxBytes / 2
+	}
+
+	type entry struct {
+		path  string
+		size  int64
+		mtime time.Time
+	}
+
+	var entries []entry
+
+	filepath.WalkDir(c.dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			if err != nil {
+				return nil
+			}
+			if path == c.dir {
+				return nil
+			}
+			return filepath.SkipDir
+		}
+		name := d.Name()
+		if filepath.Ext(name) == ".exp" || filepath.Ext(name) == ".hdr" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		entries = append(entries, entry{
+			path:  path,
+			size:  info.Size(),
+			mtime: info.ModTime(),
+		})
+		return nil
+	})
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].mtime.Before(entries[j].mtime)
+	})
+
+	for _, e := range entries {
+		if c.usedBytes <= target {
+			break
+		}
+		os.Remove(e.path)
+		os.Remove(e.path + ".hdr")
+		os.Remove(e.path + ".exp")
+		c.usedBytes -= e.size
+	}
 }
 
 func (c *Cache) IsExpired(key string) bool {
 	path := c.keyPath(key) + ".exp"
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false // no expiry file = never expires
+		return false
 	}
 	var expiry int64
 	fmt.Sscanf(string(data), "%d", &expiry)
@@ -172,14 +252,13 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 	io.Copy(w, resp.Body)
 }
 
+func (c *Cache) Hits() int64   { return c.hits.Load() }
+func (c *Cache) Misses() int64 { return c.misses.Load() }
+
 func (c *Cache) CleanExpired() {
-	now := time.Now().Unix()
-	files, _ := os.ReadDir(c.dir)
-	for _, f := range files {
-		if f.IsDir() {
-			cleanDirExpired(filepath.Join(c.dir, f.Name()), now)
-		}
-	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cleanDirExpired(c.dir, time.Now().Unix())
 }
 
 func cleanDirExpired(dir string, now int64) {

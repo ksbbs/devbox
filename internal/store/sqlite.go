@@ -99,6 +99,54 @@ func (s *Store) GetTrafficSummary(from, to time.Time) ([]TrafficSummary, error) 
 	return summaries, nil
 }
 
+func (s *Store) GetTrafficDaily(from, to time.Time) ([]TrafficHourly, error) {
+	rows, err := s.db.Query(
+		"SELECT strftime('%Y-%m-%dT00:00:00Z', created_at), mirror, COUNT(*), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY 1, mirror ORDER BY 1",
+		from.Format(time.RFC3339), to.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []TrafficHourly
+	for rows.Next() {
+		var th TrafficHourly
+		if err := rows.Scan(&th.Hour, &th.Mirror, &th.Requests, &th.BytesOut); err != nil {
+			return nil, err
+		}
+		result = append(result, th)
+	}
+	if result == nil {
+		result = []TrafficHourly{}
+	}
+	return result, nil
+}
+
+func (s *Store) GetTrafficWeekly(from, to time.Time) ([]TrafficHourly, error) {
+	rows, err := s.db.Query(
+		"SELECT strftime('%Y-%m-%dT00:00:00Z', created_at, 'weekday 1', '-7 days'), mirror, COUNT(*), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY strftime('%Y-%W', created_at), mirror ORDER BY 1",
+		from.Format(time.RFC3339), to.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []TrafficHourly
+	for rows.Next() {
+		var th TrafficHourly
+		if err := rows.Scan(&th.Hour, &th.Mirror, &th.Requests, &th.BytesOut); err != nil {
+			return nil, err
+		}
+		result = append(result, th)
+	}
+	if result == nil {
+		result = []TrafficHourly{}
+	}
+	return result, nil
+}
+
 type TrafficHourly struct {
 	Hour     string `json:"hour"`
 	Mirror   string `json:"mirror"`

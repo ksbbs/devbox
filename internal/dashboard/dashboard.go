@@ -2,26 +2,37 @@ package dashboard
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"devbox/internal/alert"
 	"devbox/internal/mirror"
 	"devbox/internal/store"
 )
 
 type Dashboard struct {
-	store     *store.Store
-	authToken string
-	publicURL string
-	rlConfig  RateLimitConfigAccessor
+	store       *store.Store
+	authToken   string
+	publicURL   string
+	rlConfig    RateLimitConfigAccessor
+	saveConfig  func() error
+	alertEngine *alert.Engine
 
-	healthMu     sync.RWMutex
-	healthCache  map[string]cachedHealth
-	healthReady  bool
+	healthMu    sync.RWMutex
+	healthCache map[string]cachedHealth
+	healthReady bool
+}
+
+func (d *Dashboard) SetAlertEngine(ae *alert.Engine) {
+	d.alertEngine = ae
+}
+
+func (d *Dashboard) SetSaveConfig(fn func() error) {
+	d.saveConfig = fn
 }
 
 type RateLimitConfigAccessor interface {
@@ -61,6 +72,13 @@ func (d *Dashboard) SetRateLimitConfigAccessor(rl RateLimitConfigAccessor) {
 	d.rlConfig = rl
 }
 
+func (d *Dashboard) GetRateLimitConfig() RateLimitConfigView {
+	if d.rlConfig == nil {
+		return RateLimitConfigView{}
+	}
+	return d.rlConfig.GetRateLimitConfig()
+}
+
 func (d *Dashboard) backgroundHealthCheck() {
 	d.runHealthChecks()
 	ticker := time.NewTicker(60 * time.Second)
@@ -71,6 +89,16 @@ func (d *Dashboard) backgroundHealthCheck() {
 
 func (d *Dashboard) runHealthChecks() {
 	mirrors := mirror.All()
+	prevCache := func() map[string]cachedHealth {
+		d.healthMu.RLock()
+		defer d.healthMu.RUnlock()
+		cp := make(map[string]cachedHealth, len(d.healthCache))
+		for k, v := range d.healthCache {
+			cp[k] = v
+		}
+		return cp
+	}()
+
 	type result struct {
 		name   string
 		status string
@@ -92,12 +120,26 @@ func (d *Dashboard) runHealthChecks() {
 	for range mirrors {
 		r := <-ch
 		cache[r.name] = cachedHealth{status: r.status, err: r.err}
+
+		if d.alertEngine != nil {
+			prev, seen := prevCache[r.name]
+			if seen && prev.status == "healthy" && r.status == "unhealthy" {
+				d.alertEngine.Trigger(r.name,
+					fmt.Sprintf("Mirror %s is unhealthy", r.name),
+					fmt.Sprintf("Mirror %s health check failed: %s", r.name, r.err))
+			}
+			if seen && prev.status == "unhealthy" && r.status == "healthy" {
+				d.alertEngine.Trigger(r.name+"-recovered",
+					fmt.Sprintf("Mirror %s recovered", r.name),
+					fmt.Sprintf("Mirror %s is healthy again", r.name))
+			}
+		}
 	}
 	d.healthMu.Lock()
 	d.healthCache = cache
 	d.healthReady = true
 	d.healthMu.Unlock()
-	log.Printf("[health] background check complete: %d mirrors", len(cache))
+	slog.Info("background health check complete", "mirrors", len(cache))
 }
 
 func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +169,13 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		"ghapi":    fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
 		"gitproxy": fmt.Sprintf("git clone %s/gh/user/repo", baseURL),
 		"hf":       fmt.Sprintf("huggingface-cli download --endpoint %s/hf model/name", baseURL),
+		"conda":    fmt.Sprintf("conda config --add channels %s/conda", baseURL),
+		"rubygems": fmt.Sprintf("gem source -a %s/rubygems", baseURL),
+		"cargo":    fmt.Sprintf("export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; CARGO_REGISTRIES_CRATES_IO_INDEX=%s/cargo", baseURL),
+		"nuget":    fmt.Sprintf("dotnet nuget add source %s/nuget/index.json", baseURL),
+		"apt":      fmt.Sprintf("echo 'deb %s/apt stable main' > /etc/apt/sources.list", baseURL),
+		"alpine":   fmt.Sprintf("sed -i 's|dl-cdn.alpinelinux.org|%s/alpine|g' /etc/apk/repositories", baseURL),
+		"homebrew": fmt.Sprintf("export HOMEBREW_BOTTLE_DOMAIN=%s/homebrew", baseURL),
 	}
 
 	mirrors := mirror.All()
@@ -198,23 +247,36 @@ func (d *Dashboard) TrafficHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if granularity == "hourly" {
+	switch granularity {
+	case "hourly":
 		hourly, err := d.store.GetTrafficHourly(from, to)
 		if err != nil {
 			http.Error(w, "query error", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, hourly)
-		return
+	case "daily":
+		daily, err := d.store.GetTrafficDaily(from, to)
+		if err != nil {
+			http.Error(w, "query error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, daily)
+	case "weekly":
+		weekly, err := d.store.GetTrafficWeekly(from, to)
+		if err != nil {
+			http.Error(w, "query error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, weekly)
+	default:
+		summaries, err := d.store.GetTrafficSummary(from, to)
+		if err != nil {
+			http.Error(w, "query error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, summaries)
 	}
-
-	summaries, err := d.store.GetTrafficSummary(from, to)
-	if err != nil {
-		http.Error(w, "query error", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, summaries)
 }
 
 func (d *Dashboard) LogHandler(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +327,7 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 			Name     string `json:"name"`
 			Enabled  bool   `json:"enabled"`
 			Upstream string `json:"upstream"`
+			CacheTTL string `json:"cacheTTL"`
 		}
 		if !readJSON(r, &req) {
 			http.Error(w, "invalid request", http.StatusBadRequest)
@@ -278,6 +341,21 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 		m.SetEnabled(req.Enabled)
 		if req.Upstream != "" {
 			m.SetUpstream(req.Upstream)
+		}
+		if req.CacheTTL != "" {
+			if err := m.SetCacheTTL(req.CacheTTL); err != nil {
+				http.Error(w, "invalid cacheTTL: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else if req.CacheTTL == "" && req.Upstream == "" {
+			// Only enabled field changed — keep existing TTL
+		}
+		if d.saveConfig != nil {
+			if err := d.saveConfig(); err != nil {
+				slog.Error("failed to persist config", "error", err)
+				writeJSON(w, map[string]string{"status": "persist_failed", "error": err.Error()})
+				return
+			}
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 		return
@@ -348,6 +426,13 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 		d.rlConfig.SetRateLimitInterval(req.Interval)
 		d.rlConfig.SetRateLimitWhitelist(req.Whitelist)
 		d.rlConfig.SetRateLimitBlacklist(req.Blacklist)
+		if d.saveConfig != nil {
+			if err := d.saveConfig(); err != nil {
+				slog.Error("failed to persist rate limit config", "error", err)
+				http.Error(w, "persist_failed", http.StatusInternalServerError)
+				return
+			}
+		}
 		writeJSON(w, d.rlConfig.GetRateLimitConfig())
 		return
 	}

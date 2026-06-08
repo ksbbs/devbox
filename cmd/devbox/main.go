@@ -43,7 +43,7 @@ func main() {
 		log.Printf("  Mirror %s: %s → %s", m.Name(), status, mCfg.Upstream)
 	}
 
-	srv, err := server.New(cfg, *frontDir)
+	srv, err := server.New(cfg, *configPath, *frontDir)
 	if err != nil {
 		log.Fatalf("init server: %v", err)
 	}

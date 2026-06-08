@@ -10,7 +10,7 @@ import (
 	"devbox/internal/config"
 )
 
-type HfMirror struct {
+type HomebrewMirror struct {
 	mu       sync.RWMutex
 	enabled  bool
 	upstream string
@@ -18,32 +18,32 @@ type HfMirror struct {
 }
 
 func init() {
-	Register(&HfMirror{})
+	Register(&HomebrewMirror{})
 }
 
-func (h *HfMirror) Name() string    { return "hf" }
-func (h *HfMirror) Pattern() string { return "/hf/" }
-func (h *HfMirror) Upstream() string {
+func (h *HomebrewMirror) Name() string    { return "homebrew" }
+func (h *HomebrewMirror) Pattern() string { return "/homebrew/" }
+func (h *HomebrewMirror) Upstream() string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.upstream
 }
-func (h *HfMirror) SetUpstream(url string) {
+func (h *HomebrewMirror) SetUpstream(url string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.upstream = url
 }
-func (h *HfMirror) IsEnabled() bool {
+func (h *HomebrewMirror) IsEnabled() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.enabled
 }
-func (h *HfMirror) SetEnabled(e bool) {
+func (h *HomebrewMirror) SetEnabled(e bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.enabled = e
 }
-func (h *HfMirror) CacheTTL() string {
+func (h *HomebrewMirror) CacheTTL() string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	d := h.cacheTTL
@@ -60,7 +60,7 @@ func (h *HfMirror) CacheTTL() string {
 	return fmt.Sprintf("%dm", secs/60)
 }
 
-func (h *HfMirror) ApplyConfig(cfg config.MirrorConfig) {
+func (h *HomebrewMirror) ApplyConfig(cfg config.MirrorConfig) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.enabled = cfg.Enabled
@@ -68,18 +68,17 @@ func (h *HfMirror) ApplyConfig(cfg config.MirrorConfig) {
 	h.cacheTTL = cfg.CacheTTLd
 }
 
-func (h *HfMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
+func (h *HomebrewMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	h.mu.RLock()
 	upstream := h.upstream
 	h.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/hf")
-		// HuggingFace files can be large (model weights), use streaming proxy
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/homebrew")
 		cache.ProxyStream(w, r, upstream)
 	}
 }
 
-func (h *HfMirror) SetCacheTTL(ttl string) error {
+func (h *HomebrewMirror) SetCacheTTL(ttl string) error {
 	d, err := config.ParseDuration(ttl)
 	if err != nil {
 		return err
@@ -90,14 +89,14 @@ func (h *HfMirror) SetCacheTTL(ttl string) error {
 	return nil
 }
 
-func (h *HfMirror) HealthCheck() error {
+func (h *HomebrewMirror) HealthCheck() error {
 	resp, err := HealthGet(h.Upstream() + "/")
 	if err != nil {
-		return fmt.Errorf("huggingface upstream unreachable: %w", err)
+		return fmt.Errorf("homebrew upstream unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("huggingface upstream returned %d", resp.StatusCode)
+		return fmt.Errorf("homebrew upstream returned %d", resp.StatusCode)
 	}
 	return nil
 }

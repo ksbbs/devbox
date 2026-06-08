@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 type SearchHandler struct{}
@@ -20,44 +21,86 @@ type SearchResult struct {
 	URL      string `json:"url"`
 }
 
+type SearchResponse struct {
+	Results []SearchResult `json:"results"`
+	Page    int            `json:"page"`
+	PerPage int            `json:"per_page"`
+	HasMore bool           `json:"has_more"`
+}
+
 func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	registry := r.URL.Query().Get("registry")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage < 1 || perPage > 50 {
+		perPage = 10
+	}
+
+	resp := SearchResponse{Page: page, PerPage: perPage}
+
 	if query == "" {
-		writeJSON(w, []SearchResult{})
+		writeJSON(w, resp)
 		return
 	}
 
 	var results []SearchResult
 
 	if registry == "" || registry == "npm" {
-		npmResults, err := searchNpm(query)
-		if err == nil {
-			results = append(results, npmResults...)
+		r, hasMore := searchNpm(query, page, perPage)
+		results = append(results, r...)
+		if hasMore {
+			resp.HasMore = true
 		}
 	}
-
 	if registry == "" || registry == "docker" {
-		dockerResults, err := searchDocker(query)
-		if err == nil {
-			results = append(results, dockerResults...)
+		r, hasMore := searchDocker(query, page, perPage)
+		results = append(results, r...)
+		if hasMore {
+			resp.HasMore = true
 		}
 	}
-
 	if registry == "" || registry == "pypi" {
-		pypiResults, err := searchPyPI(query)
-		if err == nil {
-			results = append(results, pypiResults...)
+		r := searchPyPI(query)
+		results = append(results, r...)
+	}
+	if registry == "" || registry == "conda" || registry == "conda-forge" {
+		r := searchConda(query)
+		results = append(results, r...)
+	}
+	if registry == "" || registry == "rubygems" {
+		r, hasMore := searchRubyGems(query, page, perPage)
+		results = append(results, r...)
+		if hasMore {
+			resp.HasMore = true
+		}
+	}
+	if registry == "" || registry == "cargo" {
+		r, hasMore := searchCargo(query, page, perPage)
+		results = append(results, r...)
+		if hasMore {
+			resp.HasMore = true
+		}
+	}
+	if registry == "" || registry == "nuget" {
+		r, hasMore := searchNuGet(query, page, perPage)
+		results = append(results, r...)
+		if hasMore {
+			resp.HasMore = true
 		}
 	}
 
-	writeJSON(w, results)
+	resp.Results = results
+	writeJSON(w, resp)
 }
 
-func searchNpm(query string) ([]SearchResult, error) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=10", url.QueryEscape(query)))
+func searchNpm(query string, page, perPage int) ([]SearchResult, bool) {
+	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=%d&from=%d", url.QueryEscape(query), perPage, (page-1)*perPage))
 	if err != nil {
-		return nil, err
+		return nil, false
 	}
 	defer resp.Body.Close()
 
@@ -68,10 +111,11 @@ func searchNpm(query string) ([]SearchResult, error) {
 				Desc string `json:"description"`
 			} `json:"package"`
 		} `json:"objects"`
+		Total int `json:"total"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+		return nil, false
 	}
 
 	results := make([]SearchResult, 0, len(data.Objects))
@@ -83,13 +127,13 @@ func searchNpm(query string) ([]SearchResult, error) {
 			URL:      "https://www.npmjs.com/package/" + obj.Package.Name,
 		})
 	}
-	return results, nil
+	return results, page*perPage < data.Total
 }
 
-func searchDocker(query string) ([]SearchResult, error) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=10", url.QueryEscape(query)))
+func searchDocker(query string, page, perPage int) ([]SearchResult, bool) {
+	resp, err := http.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=%d&page=%d", url.QueryEscape(query), perPage, page))
 	if err != nil {
-		return nil, err
+		return nil, false
 	}
 	defer resp.Body.Close()
 
@@ -98,10 +142,13 @@ func searchDocker(query string) ([]SearchResult, error) {
 			RepoName  string `json:"repo_name"`
 			ShortDesc string `json:"short_description"`
 		} `json:"results"`
+		Total int `json:"num_results"`
+		Page  int `json:"page"`
+		Pages int `json:"num_pages"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+		return nil, false
 	}
 
 	results := make([]SearchResult, 0, len(data.Results))
@@ -113,21 +160,17 @@ func searchDocker(query string) ([]SearchResult, error) {
 			URL:      "https://hub.docker.com/r/" + r.RepoName,
 		})
 	}
-	return results, nil
+	return results, page < data.Pages
 }
 
-func searchPyPI(query string) ([]SearchResult, error) {
-	// PyPI search API is deprecated (returns Cloudflare HTML).
-	// Use the JSON API for exact package name lookup instead.
+func searchPyPI(query string) []SearchResult {
 	resp, err := http.Get(fmt.Sprintf("https://pypi.org/pypi/%s/json", url.QueryEscape(query)))
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != 200 {
-		// Package not found, return empty results
-		return nil, nil
+		return nil
 	}
 
 	var data struct {
@@ -136,17 +179,140 @@ func searchPyPI(query string) ([]SearchResult, error) {
 			Summary string `json:"summary"`
 		} `json:"info"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
+		return nil
+	}
+	return []SearchResult{{
+		Registry: "pypi",
+		Name:     data.Info.Name,
+		Desc:     data.Info.Summary,
+		URL:      "https://pypi.org/project/" + data.Info.Name,
+	}}
+}
+
+func searchConda(query string) []SearchResult {
+	resp, err := http.Get(fmt.Sprintf("https://api.anaconda.org/package/%s", url.QueryEscape(query)))
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
 	}
 
-	return []SearchResult{
-		{
-			Registry: "pypi",
-			Name:     data.Info.Name,
-			Desc:     data.Info.Summary,
-			URL:      "https://pypi.org/project/" + data.Info.Name,
-		},
-	}, nil
+	var data struct {
+		Name        string `json:"name"`
+		Summary     string `json:"summary"`
+		PackageType string `json:"package_type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil
+	}
+	channel := "main"
+	if data.PackageType == "conda" {
+		channel = "conda-forge"
+	}
+	return []SearchResult{{
+		Registry: "conda",
+		Name:     data.Name,
+		Desc:     data.Summary,
+		URL:      fmt.Sprintf("https://anaconda.org/%s/%s", channel, data.Name),
+	}}
+}
+
+func searchRubyGems(query string, page, perPage int) ([]SearchResult, bool) {
+	resp, err := http.Get(fmt.Sprintf("https://rubygems.org/api/v1/search.json?query=%s&page=%d", url.QueryEscape(query), page))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	var data []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Info        string `json:"info"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, false
+	}
+
+	results := make([]SearchResult, 0, len(data))
+	for _, r := range data {
+		desc := r.Description
+		if desc == "" {
+			desc = r.Info
+		}
+		results = append(results, SearchResult{
+			Registry: "rubygems",
+			Name:     r.Name,
+			Desc:     desc,
+			URL:      "https://rubygems.org/gems/" + r.Name,
+		})
+	}
+	return results, len(data) >= perPage
+}
+
+func searchCargo(query string, page, perPage int) ([]SearchResult, bool) {
+	req, _ := http.NewRequest("GET", fmt.Sprintf("https://crates.io/api/v1/crates?q=%s&page=%d&per_page=%d", url.QueryEscape(query), page, perPage), nil)
+	req.Header.Set("User-Agent", "devbox/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Crates []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"crates"`
+		Meta struct {
+			Total int `json:"total"`
+		} `json:"meta"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, false
+	}
+
+	results := make([]SearchResult, 0, len(data.Crates))
+	for _, c := range data.Crates {
+		results = append(results, SearchResult{
+			Registry: "cargo",
+			Name:     c.Name,
+			Desc:     c.Description,
+			URL:      "https://crates.io/crates/" + c.Name,
+		})
+	}
+	return results, page*perPage < data.Meta.Total
+}
+
+func searchNuGet(query string, page, perPage int) ([]SearchResult, bool) {
+	skip := (page - 1) * perPage
+	resp, err := http.Get(fmt.Sprintf("https://azuresearch-usnc.nuget.org/query?q=%s&skip=%d&take=%d", url.QueryEscape(query), skip, perPage))
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Description string `json:"description"`
+		} `json:"data"`
+		Total int `json:"total"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, false
+	}
+
+	results := make([]SearchResult, 0, len(data.Data))
+	for _, d := range data.Data {
+		results = append(results, SearchResult{
+			Registry: "nuget",
+			Name:     d.ID,
+			Desc:     d.Description,
+			URL:      "https://www.nuget.org/packages/" + d.ID,
+		})
+	}
+	return results, page*perPage < data.Total
 }
