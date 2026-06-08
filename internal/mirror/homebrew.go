@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (h *HomebrewMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	upstream := h.upstream
 	h.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/homebrew"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/homebrew")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

@@ -74,7 +74,7 @@ func (n *NpmMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := n.upstream
 		cacheTTL := n.cacheTTL
 		n.mu.RUnlock()
-		r.URL.Path = r.URL.Path[len("/npm"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/npm")
 		if r.URL.Path == "" || r.URL.Path == "/" {
 			r.URL.Path = "/"
 		}

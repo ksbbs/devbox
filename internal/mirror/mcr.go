@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (m *McrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	upstream := m.upstream
 	m.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/mcr"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/mcr")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

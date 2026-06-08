@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,7 +74,7 @@ func (p *PypiMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	cacheTTL := p.cacheTTL
 	p.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/pypi"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/pypi")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}
 }

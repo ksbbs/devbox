@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (d *DockerMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		d.mu.RLock()
 		upstream := d.upstream
 		d.mu.RUnlock()
-		r.URL.Path = r.URL.Path[len("/docker"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/docker")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

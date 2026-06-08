@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,7 +74,7 @@ func (g *GithubAPIMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	cacheTTL := g.cacheTTL
 	g.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/ghapi"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/ghapi")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}
 }

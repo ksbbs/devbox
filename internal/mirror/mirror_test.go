@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func (m *testMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 func (m *testMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/test"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/test")
 		cache.ProxyHTTP(w, r, m.upstream, m.cacheTTL)
 	}
 }

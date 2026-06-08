@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (g *GhcrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	upstream := g.upstream
 	g.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/ghcr"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/ghcr")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

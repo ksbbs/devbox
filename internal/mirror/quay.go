@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (q *QuayMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	upstream := q.upstream
 	q.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/quay"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/quay")
 		cache.ProxyStream(w, r, upstream)
 	}
 }

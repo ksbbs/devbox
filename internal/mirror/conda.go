@@ -3,6 +3,7 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,7 +74,7 @@ func (c *CondaMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 	cacheTTL := c.cacheTTL
 	c.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = r.URL.Path[len("/conda"):]
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/conda")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}
 }
