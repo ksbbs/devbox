@@ -101,32 +101,25 @@ func TestCacheMaxBytesSingleFile(t *testing.T) {
 		t.Fatal("expected cache hit for small file within limit")
 	}
 
-	// Initialize usedBytes to be high to trigger LRU eviction on next Set
-	// Actually the Get has maxBytes check on the file itself
+	// Over-limit write should trigger eviction, not crash
 	c.Set("big-key", []byte("this is a big value that exceeds limit"), make(http.Header), 0)
 
-	// The big file itself gets stored, but the LRU eviction will clean it
-	// Let's check if the small file still exists after eviction
-	_, _, ok = c.Get("small-key")
-	// small-key may or may not be evicted depending on LRU order
-	// Both are fine as long as no crash
-	_ = ok
+	// big-key should exist (recently written survives LRU)
+	_, _, ok = c.Get("big-key")
+	if !ok {
+		t.Log("big-key evicted (acceptable if small-key was not)")
+	}
 }
 
 func TestCacheLRUEviction(t *testing.T) {
 	dir := t.TempDir()
-	// Set limit to 30 bytes
 	c := NewCache(dir, 30)
 
 	c.Set("a", []byte("aaaaaaaaaaaaaaaa"), make(http.Header), 0) // 16 bytes
 	c.Set("b", []byte("bbbbbbbbbbbbbbbb"), make(http.Header), 0) // 16 bytes, total 32 > 30
 
-	// Should have evicted oldest (a) to stay under limit
-	_, _, ok := c.Get("a")
-	if ok {
-		t.Log("key 'a' survived eviction")
-	}
-	_, _, ok = c.Get("b")
+	// Should have evicted oldest (a) or kept both if under 80% target
+	_, _, ok := c.Get("b")
 	if !ok {
 		t.Fatal("expected key 'b' to survive (more recently written)")
 	}

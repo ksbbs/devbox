@@ -3,12 +3,14 @@ package mirror
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"devbox/internal/config"
 )
 
 type HomebrewMirror struct {
+	mu       sync.RWMutex
 	enabled  bool
 	upstream string
 	cacheTTL time.Duration
@@ -18,24 +20,60 @@ func init() {
 	Register(&HomebrewMirror{})
 }
 
-func (h *HomebrewMirror) Name() string           { return "homebrew" }
-func (h *HomebrewMirror) Pattern() string        { return "/homebrew/" }
-func (h *HomebrewMirror) Upstream() string       { return h.upstream }
-func (h *HomebrewMirror) SetUpstream(url string) { h.upstream = url }
-func (h *HomebrewMirror) IsEnabled() bool        { return h.enabled }
-func (h *HomebrewMirror) SetEnabled(e bool)      { h.enabled = e }
-func (h *HomebrewMirror) CacheTTL() string       { return fmt.Sprintf("%d", h.cacheTTL/time.Second) }
+func (h *HomebrewMirror) Name() string    { return "homebrew" }
+func (h *HomebrewMirror) Pattern() string { return "/homebrew/" }
+func (h *HomebrewMirror) Upstream() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.upstream
+}
+func (h *HomebrewMirror) SetUpstream(url string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.upstream = url
+}
+func (h *HomebrewMirror) IsEnabled() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.enabled
+}
+func (h *HomebrewMirror) SetEnabled(e bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.enabled = e
+}
+func (h *HomebrewMirror) CacheTTL() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	d := h.cacheTTL
+	if d == 0 {
+		return "0"
+	}
+	secs := d / time.Second
+	if secs%86400 == 0 {
+		return fmt.Sprintf("%dd", secs/86400)
+	}
+	if secs%3600 == 0 {
+		return fmt.Sprintf("%dh", secs/3600)
+	}
+	return fmt.Sprintf("%dm", secs/60)
+}
 
 func (h *HomebrewMirror) ApplyConfig(cfg config.MirrorConfig) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.enabled = cfg.Enabled
 	h.upstream = cfg.Upstream
 	h.cacheTTL = cfg.CacheTTLd
 }
 
 func (h *HomebrewMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
+	h.mu.RLock()
+	upstream := h.upstream
+	h.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path = r.URL.Path[len("/homebrew"):]
-		cache.ProxyStream(w, r, h.upstream)
+		cache.ProxyStream(w, r, upstream)
 	}
 }
 
@@ -44,6 +82,8 @@ func (h *HomebrewMirror) SetCacheTTL(ttl string) error {
 	if err != nil {
 		return err
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cacheTTL = d
 	return nil
 }

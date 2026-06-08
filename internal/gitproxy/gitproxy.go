@@ -2,7 +2,7 @@ package gitproxy
 
 import (
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -75,6 +75,16 @@ func isRawRequest(path string) bool {
 
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
+		target := upstream + path
+		if resp, err := http.Head(target); err == nil {
+			if isHTMLResponse(resp) {
+				resp.Body.Close()
+				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
+				http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
+				return
+			}
+			resp.Body.Close()
+		}
 		orig := r.URL.Path
 		r.URL.Path = path
 		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
@@ -89,7 +99,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 	}
 	defer resp.Body.Close()
 	if isHTMLResponse(resp) {
-		log.Printf("[gitproxy] blocking HTML response for %s", path)
+		slog.Warn("gitproxy blocking HTML response", "path", path)
 		http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
 		return
 	}
@@ -100,6 +110,16 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
+		target := gp.rawUpstream + path
+		if resp, err := http.Head(target); err == nil {
+			if isHTMLResponse(resp) {
+				resp.Body.Close()
+				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
+				http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
+				return
+			}
+			resp.Body.Close()
+		}
 		orig := r.URL.Path
 		r.URL.Path = path
 		gp.cache.ProxyHTTP(w, r, gp.rawUpstream, gp.cacheTTL)
@@ -114,7 +134,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 	}
 	defer resp.Body.Close()
 	if isHTMLResponse(resp) {
-		log.Printf("[gitproxy] blocking HTML response for %s", path)
+		slog.Warn("gitproxy blocking HTML response", "path", path)
 		http.Error(w, "content blocked: HTML not allowed", http.StatusForbidden)
 		return
 	}

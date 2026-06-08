@@ -94,9 +94,16 @@ export async function getPublicConfig() {
   return api.get("/config/public").then((r) => r.data);
 }
 
-export async function searchMirrors(q: string, registry?: string) {
+export async function searchMirrors(
+  q: string,
+  registry?: string,
+  page?: number,
+  perPage?: number,
+) {
   const params: Record<string, string> = { q };
   if (registry) params.registry = registry;
+  if (page) params.page = String(page);
+  if (perPage) params.perPage = String(perPage);
   return api.get("/search", { params }).then((r) => r.data);
 }
 

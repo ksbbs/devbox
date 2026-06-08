@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"devbox/internal/alert"
 	"devbox/internal/config"
 	"devbox/internal/dashboard"
 	"devbox/internal/gitproxy"
@@ -49,16 +50,17 @@ var registries = map[string]registryInfo{
 }
 
 type Server struct {
-	cfg        *config.Config
-	configPath string
-	cache      *mirror.Cache
-	gitProxy   *gitproxy.GitProxy
-	dash       *dashboard.Dashboard
-	store      *store.Store
-	limiterMu  sync.RWMutex
-	limiter    *ratelimit.Limiter
-	search     *dashboard.SearchHandler
-	tokenCache *tokenCache
+	cfg         *config.Config
+	configPath  string
+	cache       *mirror.Cache
+	gitProxy    *gitproxy.GitProxy
+	dash        *dashboard.Dashboard
+	store       *store.Store
+	limiterMu   sync.RWMutex
+	limiter     *ratelimit.Limiter
+	search      *dashboard.SearchHandler
+	alertEngine *alert.Engine
+	tokenCache  *tokenCache
 	// Custom client: strip Authorization when following 307 redirects to CDN
 	// (Docker Hub blob storage on Cloudflare rejects auth headers)
 	registryClient *http.Client
@@ -99,6 +101,14 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 
 	dash := dashboard.New(st, cfg.Server.AuthToken, cfg.Server.PublicURL)
 
+	ae := alert.NewEngine(cfg.Alerts.CooldownD)
+	if cfg.Alerts.WebhookURL != "" {
+		ae.AddProvider(alert.NewWebhook(cfg.Alerts.WebhookURL))
+	} else {
+		ae.AddProvider(alert.NewLog())
+	}
+	dash.SetAlertEngine(ae)
+
 	var limiter *ratelimit.Limiter
 	if cfg.RateLimit.Enabled {
 		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist)
@@ -113,6 +123,7 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 		store:          st,
 		limiter:        limiter,
 		search:         dashboard.NewSearchHandler(),
+		alertEngine:    ae,
 		tokenCache:     &tokenCache{tokens: make(map[string]*cachedToken)},
 		registryClient: newRegistryClient(),
 		frontDir:       frontDir,
@@ -127,19 +138,16 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// Mirror proxy routes
+	// Mirror proxy routes — register all regardless of enabled state
+	// so enabling/disabling at runtime works without mux rebuild
 	for _, m := range mirror.All() {
-		if m.IsEnabled() {
-			handler := m.ProxyHandler(s.cache)
-			mux.HandleFunc(m.Pattern(), s.wrapWithStats(m.Name(), handler))
-		}
+		handler := s.mirrorEnabledWrapper(m, m.ProxyHandler(s.cache))
+		mux.HandleFunc(m.Pattern(), s.wrapWithStats(m.Name(), handler))
 	}
 
 	// Git proxy routes
-	if s.cfg.GitProxy.Enabled {
-		mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
-		mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
-	}
+	mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
+	mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
 
 	// Dashboard API routes
 	mux.HandleFunc("/api/status", s.dash.StatusHandler)
@@ -154,6 +162,9 @@ func (s *Server) Start() error {
 
 	// Docker v2 registry API — proxy handles auth transparently
 	mux.HandleFunc("/v2/", s.wrapWithDynamicStats(registryStatsName, s.registryV2Handler))
+
+	// Prometheus metrics endpoint
+	mux.HandleFunc("/metrics", s.metricsHandler)
 
 	// Frontend static files
 	if s.frontDir != "" {
@@ -170,22 +181,23 @@ func (s *Server) Start() error {
 				fileServer.ServeHTTP(w, r)
 			})
 		} else {
-			log.Printf("frontend dir %s not found, serving API only", s.frontDir)
+			slog.Info("frontend dir not found, serving API only", "dir", s.frontDir)
 		}
 	}
 
 	go s.cacheCleanup()
 	go s.trafficCleanup()
 	go s.rateLimitCleanup()
+	go s.configWatcher()
 	go s.tokenCacheCleanup()
 
 	addr := fmt.Sprintf(":%d", s.cfg.Server.Port)
-	log.Printf("DevBox starting on %s", addr)
+	slog.Info("DevBox starting", "addr", addr)
 
 	handler := logMiddleware(mux, s.cfg.Logging.AccessLog)
 	if s.limiter != nil {
 		handler = s.rateLimitMiddleware(handler)
-		log.Printf("rate limiting enabled: %d requests per %s", s.cfg.RateLimit.Rate, s.cfg.RateLimit.Interval)
+		slog.Info("rate limiting enabled", "rate", s.cfg.RateLimit.Rate, "interval", s.cfg.RateLimit.Interval)
 	}
 	return http.ListenAndServe(addr, handler)
 }
@@ -227,13 +239,13 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	// Get token (cached or fresh)
 	token, err := s.getRegistryToken(regInfo, scope)
 	if err != nil {
-		log.Printf("[registry] token error for %s: %v", registryName, err)
+		slog.Error("registry token error", "registry", registryName, "error", err)
 		// Try without token (some repos are public)
 		s.proxyRegistryRequest(w, r, target, "")
 		return
 	}
 
-	log.Printf("[registry] %s %s → %s (token=%s...)", r.Method, path, target, token[:min(10, len(token))])
+	slog.Info("registry request", "method", r.Method, "path", path, "target", target, "token_prefix", token[:min(10, len(token))])
 	s.proxyRegistryRequest(w, r, target, token)
 }
 
@@ -277,7 +289,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 
 	resp, err := s.registryClient.Do(upstreamReq)
 	if err != nil {
-		log.Printf("[registry] upstream error: %v", err)
+		slog.Error("registry upstream error", "error", err)
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
@@ -301,7 +313,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 
 		resp.Body.Close()
 		// Retry without token — let upstream give fresh 401
-		log.Printf("[registry] token rejected, retrying without token")
+		slog.Warn("registry token rejected, retrying without token")
 		s.proxyRegistryRequest(w, r, target, "")
 		return
 	}
@@ -321,7 +333,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			newToken, err := s.getRegistryToken(regInfo, scope)
 			if err == nil && newToken != "" {
 				resp.Body.Close()
-				log.Printf("[registry] got new token with scope=%s, retrying", scope)
+				slog.Info("registry got new token, retrying", "scope", scope)
 				s.proxyRegistryRequest(w, r, target, newToken)
 				return
 			}
@@ -420,7 +432,7 @@ func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, e
 	}
 	s.tokenCache.mu.Unlock()
 
-	log.Printf("[token] got token for %s scope=%s expires_in=%ds", regInfo.service, scope, tokenResp.ExpiresIn)
+	slog.Info("got token", "service", regInfo.service, "scope", scope, "expires_in", tokenResp.ExpiresIn)
 	return tokenResp.Token, nil
 }
 
@@ -490,15 +502,132 @@ func min(a, b int) int {
 	return b
 }
 
+func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	hits := s.cache.Hits()
+	misses := s.cache.Misses()
+	total := hits + misses
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "# HELP devbox_cache_hits_total Cache hits\n")
+	fmt.Fprintf(w, "# TYPE devbox_cache_hits_total counter\n")
+	fmt.Fprintf(w, "devbox_cache_hits_total %d\n", hits)
+	fmt.Fprintf(w, "# HELP devbox_cache_misses_total Cache misses\n")
+	fmt.Fprintf(w, "# TYPE devbox_cache_misses_total counter\n")
+	fmt.Fprintf(w, "devbox_cache_misses_total %d\n", misses)
+	if total > 0 {
+		fmt.Fprintf(w, "# HELP devbox_cache_hit_ratio Cache hit ratio\n")
+		fmt.Fprintf(w, "# TYPE devbox_cache_hit_ratio gauge\n")
+		fmt.Fprintf(w, "devbox_cache_hit_ratio %0.4f\n", float64(hits)/float64(total))
+	}
+	fmt.Fprintf(w, "# HELP devbox_mirrors_total Total registered mirrors\n")
+	fmt.Fprintf(w, "# TYPE devbox_mirrors_total gauge\n")
+	fmt.Fprintf(w, "devbox_mirrors_total %d\n", len(mirror.All()))
+}
+
+func (s *Server) mirrorEnabledWrapper(m mirror.Mirror, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !m.IsEnabled() {
+			http.Error(w, "mirror disabled", http.StatusServiceUnavailable)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) configWatcher() {
+	if s.configPath == "" {
+		return
+	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	var lastMtime time.Time
+	if fi, err := os.Stat(s.configPath); err == nil {
+		lastMtime = fi.ModTime()
+	}
+
+	for range ticker.C {
+		fi, err := os.Stat(s.configPath)
+		if err != nil {
+			continue
+		}
+		if fi.ModTime().Equal(lastMtime) {
+			continue
+		}
+		lastMtime = fi.ModTime()
+
+		cfg, err := config.Load(s.configPath)
+		if err != nil {
+			slog.Error("config hot-reload failed to load, keeping old config", "error", err)
+			continue
+		}
+
+		s.applyRuntimeConfig(cfg)
+		slog.Info("config hot-reloaded", "path", s.configPath)
+	}
+}
+
+func (s *Server) applyRuntimeConfig(cfg *config.Config) {
+	// Apply mirror settings
+	for name, mCfg := range cfg.Mirrors {
+		m, ok := mirror.Get(name)
+		if ok {
+			if applier, ok2 := m.(configApplier); ok2 {
+				applier.ApplyConfig(mCfg)
+			}
+		}
+	}
+
+	// Rebuild rate limiter
+	s.limiterMu.Lock()
+	if cfg.RateLimit.Enabled {
+		s.limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist)
+	} else {
+		s.limiter = nil
+	}
+	s.limiterMu.Unlock()
+
+	// Update gitproxy raw upstream
+	s.gitProxy = gitproxy.New(
+		cfg.GitProxy.GithubUpstream,
+		cfg.GitProxy.GitlabUpstream,
+		cfg.GitProxy.RawUpstream,
+		cfg.GitProxy.CacheTTLd,
+		s.cache,
+	)
+
+	// Swap config atomically
+	s.cfg = cfg
+}
+
 func (s *Server) saveConfig() error {
 	if s.configPath == "" {
 		return nil
 	}
+
+	for _, m := range mirror.All() {
+		existing, ok := s.cfg.Mirrors[m.Name()]
+		if !ok {
+			existing = config.MirrorConfig{}
+		}
+		existing.Enabled = m.IsEnabled()
+		existing.Upstream = m.Upstream()
+		existing.CacheTTL = m.CacheTTL()
+		s.cfg.Mirrors[m.Name()] = existing
+	}
+
+	rl := s.dash.GetRateLimitConfig()
+	s.cfg.RateLimit.Enabled = rl.Enabled
+	s.cfg.RateLimit.Rate = rl.Rate
+	s.cfg.RateLimit.Interval = rl.Interval
+	s.cfg.RateLimit.Whitelist = rl.Whitelist
+	s.cfg.RateLimit.Blacklist = rl.Blacklist
+
 	if err := s.cfg.Save(s.configPath); err != nil {
-		log.Printf("[config] failed to persist config: %v", err)
+		slog.Error("config failed to persist", "error", err)
 		return err
 	}
-	log.Printf("[config] config persisted to %s", s.configPath)
+	slog.Info("config persisted", "path", s.configPath)
 	return nil
 }
 
@@ -577,9 +706,13 @@ func (s *Server) wrapWithDynamicStats(nameFor func(*http.Request) string, handle
 		handler(sw, r)
 		name := nameFor(r)
 		s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status)
-		log.Printf("[%s] %s %s %d %dms %dB",
-			name, r.Method, r.URL.Path, sw.status,
-			time.Since(start).Milliseconds(), sw.bytesWritten)
+		slog.Info("request stats",
+			"name", name,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", sw.status,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"bytes_written", sw.bytesWritten)
 	}
 }
 
@@ -595,9 +728,9 @@ func (s *Server) trafficCleanup() {
 	for range ticker.C {
 		n, err := s.store.PurgeOldTraffic(s.cfg.Logging.RetentionDays)
 		if err != nil {
-			log.Printf("traffic cleanup error: %v", err)
+			slog.Error("traffic cleanup error", "error", err)
 		} else if n > 0 {
-			log.Printf("purged %d old traffic records (retention: %d days)", n, s.cfg.Logging.RetentionDays)
+			slog.Info("purged old traffic records", "count", n, "retention_days", s.cfg.Logging.RetentionDays)
 		}
 	}
 }
@@ -633,9 +766,11 @@ func logMiddleware(next http.Handler, accessLog bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s %dms",
-			r.Method, r.URL.Path, r.RemoteAddr,
-			time.Since(start).Milliseconds())
+		slog.Info("access log",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote", r.RemoteAddr,
+			"duration_ms", time.Since(start).Milliseconds())
 	})
 }
 

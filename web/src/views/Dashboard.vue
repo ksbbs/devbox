@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { getStatus, getTraffic, getPublicConfig, getRecentLogs } from '../api/client'
+import StatusCard from '../components/StatusCard.vue'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
@@ -8,9 +9,9 @@ const traffic = ref<any[]>([])
 const hourlyTraffic = ref<any[]>([])
 const logs = ref<any[]>([])
 const publicUrl = ref('')
-const copiedUsage = ref<string | null>(null)
 const copiedGuide = ref<string | null>(null)
 const chartMode = ref<'requests' | 'bandwidth'>('requests')
+const chartGranularity = ref<'hourly' | 'daily' | 'weekly'>('hourly')
 const usageBaseUrl = computed(() => (publicUrl.value || window.location.origin).replace(/\/$/, ''))
 const dockerHost = computed(() => usageBaseUrl.value.replace(/^https?:\/\//, ''))
 
@@ -144,14 +145,14 @@ async function switchChartMode() {
   chartMode.value = chartMode.value === 'requests' ? 'bandwidth' : 'requests'
 }
 
-async function refreshLogs() {
-  logs.value = await getRecentLogs(50)
+async function switchGranularity(level: 'hourly' | 'daily' | 'weekly') {
+  chartGranularity.value = level
+  const data = await getTraffic(undefined, undefined, level)
+  hourlyTraffic.value = Array.isArray(data) ? data : []
 }
 
-function copyUsage(m: any) {
-  navigator.clipboard.writeText(m.usage)
-  copiedUsage.value = m.name
-  setTimeout(() => copiedUsage.value = null, 1500)
+async function refreshLogs() {
+  logs.value = await getRecentLogs(50)
 }
 
 function copyGuide(id: string, cmd: string) {
@@ -184,15 +185,6 @@ function sparklinePoints(values: number[]) {
     .join(' ')
 }
 
-function statusClass(m: any) {
-  if (!m.enabled) return 'tag-off'
-  return m.status === 'healthy' ? 'tag-ok' : 'tag-warn'
-}
-
-function statusText(m: any) {
-  if (!m.enabled) return 'disabled'
-  return m.status === 'healthy' ? 'healthy' : 'degraded'
-}
 </script>
 
 <template>
@@ -278,50 +270,30 @@ function statusText(m: any) {
     </section>
 
     <section class="mb-5">
-      <div class="mb-2 flex items-center justify-between gap-3">
+      <div class="mb-3 flex items-center justify-between gap-3">
         <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">mirror status</h2>
         <span v-if="loading" class="text-xs text-cyan-400">loading...</span>
       </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>mirror</th>
-              <th>route</th>
-              <th>state</th>
-              <th>upstream</th>
-              <th>usage</th>
-              <th>error</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in mirrors" :key="m.name">
-              <td class="font-semibold text-slate-100">{{ m.name }}</td>
-              <td class="font-mono text-xs text-slate-500">{{ m.pattern }}</td>
-              <td><span class="tag" :class="statusClass(m)">{{ statusText(m) }}</span></td>
-              <td class="max-w-[260px] truncate text-slate-400">{{ m.upstream }}</td>
-              <td class="min-w-[220px]">
-                <div v-if="m.usage" class="flex items-center gap-2">
-                  <code class="max-w-[260px] truncate text-xs text-emerald-300">{{ m.usage }}</code>
-                  <button class="btn" @click="copyUsage(m)">{{ copiedUsage === m.name ? 'copied' : 'copy' }}</button>
-                </div>
-                <span v-else class="text-slate-600">-</span>
-              </td>
-              <td class="max-w-[220px] truncate text-xs text-red-300">{{ m.error || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="!loading && !mirrors.length" class="p-6 text-center text-sm text-slate-500">暂无镜像状态。</div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <StatusCard v-for="m in mirrors" :key="m.name" :mirror="m" />
       </div>
+      <div v-if="!loading && !mirrors.length" class="p-6 text-center text-sm text-slate-500">暂无镜像状态。</div>
     </section>
 
     <section class="mb-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div>
-        <div class="mb-2 flex items-center justify-between gap-3">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">traffic trend</h2>
-          <button class="btn" @click="switchChartMode">
-            {{ chartMode === 'requests' ? 'metric: requests' : 'metric: bandwidth' }}
-          </button>
+          <div class="flex gap-2">
+            <select class="select w-auto text-xs" :value="chartGranularity" @change="switchGranularity(($event.target as HTMLSelectElement).value as any)">
+              <option value="hourly">hourly</option>
+              <option value="daily">daily</option>
+              <option value="weekly">weekly</option>
+            </select>
+            <button class="btn" @click="switchChartMode">
+              {{ chartMode === 'requests' ? 'metric: requests' : 'metric: bandwidth' }}
+            </button>
+          </div>
         </div>
         <div class="table-wrap">
           <table class="data-table">

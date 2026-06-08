@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +18,13 @@ type Config struct {
 	Cache     CacheConfig             `yaml:"cache"`
 	Logging   LoggingConfig           `yaml:"logging"`
 	RateLimit RateLimitConfig         `yaml:"rate_limit"`
+	Alerts    AlertConfig             `yaml:"alerts"`
+}
+
+type AlertConfig struct {
+	WebhookURL string        `yaml:"webhook_url"`
+	Cooldown   string        `yaml:"cooldown"`
+	CooldownD  time.Duration `yaml:"-"`
 }
 
 type ServerConfig struct {
@@ -48,9 +56,11 @@ type CacheConfig struct {
 }
 
 type LoggingConfig struct {
-	Level         string `yaml:"level"`
-	AccessLog     bool   `yaml:"access_log"`
-	RetentionDays int    `yaml:"retention_days"`
+	Level         string     `yaml:"level"`
+	Format        string     `yaml:"format"`
+	AccessLog     bool       `yaml:"access_log"`
+	RetentionDays int        `yaml:"retention_days"`
+	LogLevel      slog.Level `yaml:"-"` // parsed
 }
 
 type RateLimitConfig struct {
@@ -67,7 +77,7 @@ func (cfg *Config) Save(path string) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 func Load(path string) (*Config, error) {
@@ -90,11 +100,15 @@ func Load(path string) (*Config, error) {
 	if err := parseCacheMaxSize(cfg); err != nil {
 		return nil, err
 	}
+	parseLogLevel(cfg)
 
 	return cfg, nil
 }
 
 func applyDefaults(cfg *Config) {
+	if cfg.Mirrors == nil {
+		cfg.Mirrors = make(map[string]MirrorConfig)
+	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
 	}
@@ -106,6 +120,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
+	}
+	if cfg.Logging.Format == "" {
+		cfg.Logging.Format = "text"
 	}
 	if cfg.Logging.RetentionDays == 0 {
 		cfg.Logging.RetentionDays = 30
@@ -132,7 +149,7 @@ func applyDefaults(cfg *Config) {
 		"rubygems": {Enabled: true, Upstream: "https://rubygems.org", CacheTTL: "7d"},
 		"cargo":    {Enabled: true, Upstream: "https://static.crates.io/crates", CacheTTL: "7d"},
 		"nuget":    {Enabled: true, Upstream: "https://api.nuget.org/v3/index.json", CacheTTL: "7d"},
-		"apt":      {Enabled: true, Upstream: "http://deb.debian.org/debian", CacheTTL: "0"},
+		"apt":      {Enabled: true, Upstream: "https://deb.debian.org/debian", CacheTTL: "0"},
 		"alpine":   {Enabled: true, Upstream: "https://dl-cdn.alpinelinux.org/alpine", CacheTTL: "0"},
 		"homebrew": {Enabled: true, Upstream: "https://ghcr.io/v2/homebrew/core", CacheTTL: "0"},
 	}
@@ -153,6 +170,10 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.GitProxy.CacheTTL == "" {
 		cfg.GitProxy.CacheTTL = "7d"
+	}
+
+	if cfg.Alerts.Cooldown == "" {
+		cfg.Alerts.Cooldown = "5m"
 	}
 }
 
@@ -222,7 +243,26 @@ func ParseDurations(cfg *Config) error {
 		return fmt.Errorf("rate_limit interval: %w", err)
 	}
 	cfg.RateLimit.IntervalDur = d
+
+	cd, err := ParseDuration(cfg.Alerts.Cooldown)
+	if err != nil {
+		return fmt.Errorf("alerts cooldown: %w", err)
+	}
+	cfg.Alerts.CooldownD = cd
 	return nil
+}
+
+func parseLogLevel(cfg *Config) {
+	switch strings.ToLower(cfg.Logging.Level) {
+	case "debug":
+		cfg.Logging.LogLevel = slog.LevelDebug
+	case "warn", "warning":
+		cfg.Logging.LogLevel = slog.LevelWarn
+	case "error":
+		cfg.Logging.LogLevel = slog.LevelError
+	default:
+		cfg.Logging.LogLevel = slog.LevelInfo
+	}
 }
 
 func ParseDuration(s string) (time.Duration, error) {

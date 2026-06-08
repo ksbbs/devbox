@@ -108,7 +108,7 @@ func TestMirrorHealthGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HealthGet failed: %v", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}

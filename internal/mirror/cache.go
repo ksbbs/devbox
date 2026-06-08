@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,8 @@ type Cache struct {
 	maxBytes  int64
 	usedBytes int64
 	mu        sync.Mutex
+	hits      atomic.Int64
+	misses    atomic.Int64
 }
 
 func NewCache(dir string, maxBytes int64) *Cache {
@@ -35,10 +38,12 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 	path := c.keyPath(key)
 	info, err := os.Stat(path)
 	if err != nil {
+		c.misses.Add(1)
 		return nil, nil, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		c.misses.Add(1)
 		return nil, nil, false
 	}
 	hdrPath := path + ".hdr"
@@ -55,8 +60,10 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 	if c.maxBytes > 0 && info.Size() > c.maxBytes {
 		os.Remove(path)
 		os.Remove(hdrPath)
+		c.misses.Add(1)
 		return nil, nil, false
 	}
+	c.hits.Add(1)
 	return data, hdr, true
 }
 
@@ -65,6 +72,12 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	defer c.mu.Unlock()
 
 	path := c.keyPath(key)
+
+	// Subtract old file size if overwriting
+	if info, err := os.Stat(path); err == nil {
+		c.usedBytes -= info.Size()
+	}
+
 	os.MkdirAll(filepath.Dir(path), 0755)
 
 	f, err := os.Create(path)
@@ -238,6 +251,9 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
+
+func (c *Cache) Hits() int64   { return c.hits.Load() }
+func (c *Cache) Misses() int64 { return c.misses.Load() }
 
 func (c *Cache) CleanExpired() {
 	c.mu.Lock()
