@@ -49,6 +49,8 @@ var registries = map[string]registryInfo{
 	"mcr":    {upstream: "https://mcr.microsoft.com", authURL: "https://mcr.microsoft.com/v2/auth", service: "mcr.microsoft.com"},
 }
 
+var authClient = &http.Client{Timeout: 15 * time.Second}
+
 type Server struct {
 	cfg         *config.Config
 	cfgMu       sync.RWMutex
@@ -147,8 +149,8 @@ func (s *Server) Start() error {
 	}
 
 	// Git proxy routes
-	mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
-	mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxy.Handler))
+	mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
+	mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
 
 	// Dashboard API routes
 	mux.HandleFunc("/api/status", s.dash.StatusHandler)
@@ -396,7 +398,7 @@ func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, e
 		url += "&scope=" + scope
 	}
 
-	resp, err := http.Get(url)
+	resp, err := authClient.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("auth request failed: %w", err)
 	}
@@ -590,8 +592,7 @@ func (s *Server) applyRuntimeConfig(cfg *config.Config) {
 	}
 	s.limiterMu.Unlock()
 
-	// Update gitproxy raw upstream
-	s.gitProxy = gitproxy.New(
+	gp := gitproxy.New(
 		cfg.GitProxy.GithubUpstream,
 		cfg.GitProxy.GitlabUpstream,
 		cfg.GitProxy.RawUpstream,
@@ -599,10 +600,18 @@ func (s *Server) applyRuntimeConfig(cfg *config.Config) {
 		s.cache,
 	)
 
-	// Swap config atomically
+	// Swap runtime config atomically.
 	s.cfgMu.Lock()
+	s.gitProxy = gp
 	s.cfg = cfg
 	s.cfgMu.Unlock()
+}
+
+func (s *Server) gitProxyHandler(w http.ResponseWriter, r *http.Request) {
+	s.cfgMu.RLock()
+	gp := s.gitProxy
+	s.cfgMu.RUnlock()
+	gp.Handler(w, r)
 }
 
 func (s *Server) saveConfig() error {
