@@ -90,12 +90,23 @@ func (h *HomebrewMirror) SetCacheTTL(ttl string) error {
 }
 
 func (h *HomebrewMirror) HealthCheck() error {
-	resp, err := HealthGet(h.Upstream() + "/")
+	upstream := h.Upstream()
+	if strings.HasSuffix(upstream, "/v2/") {
+		// Keep registry base as-is.
+	} else if strings.HasSuffix(upstream, "/v2") {
+		upstream += "/"
+	} else if idx := strings.Index(upstream, "/v2/"); idx >= 0 {
+		upstream = upstream[:idx] + "/v2/"
+	} else {
+		upstream = strings.TrimRight(upstream, "/") + "/v2/"
+	}
+
+	resp, err := HealthGet(upstream)
 	if err != nil {
 		return fmt.Errorf("homebrew upstream unreachable: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("homebrew upstream returned %d", resp.StatusCode)
 	}
 	return nil
