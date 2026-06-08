@@ -6,21 +6,25 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"devbox/internal/mirror"
 )
 
 type GitProxy struct {
 	githubUpstream string
 	gitlabUpstream string
+	rawUpstream    string
 	cacheTTL       time.Duration
-	cacheDir       string
+	cache          *mirror.Cache
 }
 
-func New(githubUpstream, gitlabUpstream string, cacheTTL time.Duration, cacheDir string) *GitProxy {
+func New(githubUpstream, gitlabUpstream, rawUpstream string, cacheTTL time.Duration, cache *mirror.Cache) *GitProxy {
 	return &GitProxy{
 		githubUpstream: githubUpstream,
 		gitlabUpstream: gitlabUpstream,
+		rawUpstream:    rawUpstream,
 		cacheTTL:       cacheTTL,
-		cacheDir:       cacheDir,
+		cache:          cache,
 	}
 }
 
@@ -39,13 +43,11 @@ func (gp *GitProxy) Handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (gp *GitProxy) proxyGitHub(w http.ResponseWriter, r *http.Request, path string) {
-	// Auto-convert /blob/ URLs to /raw/ for file content
 	if isBlobRequest(path) {
 		path = strings.Replace(path, "/blob/", "/raw/", 1)
 		gp.proxyRaw(w, r, path)
 		return
 	}
-	// Determine proxy type based on path patterns
 	if isArchiveRequest(path) {
 		gp.proxyArchive(w, r, gp.githubUpstream, path)
 	} else if isRawRequest(path) {
@@ -72,6 +74,13 @@ func isRawRequest(path string) bool {
 }
 
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
+	if gp.cache != nil && gp.cacheTTL > 0 {
+		orig := r.URL.Path
+		r.URL.Path = path
+		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
+		r.URL.Path = orig
+		return
+	}
 	target := upstream + path
 	resp, err := http.Get(target)
 	if err != nil {
@@ -90,8 +99,14 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 }
 
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
-	// raw.githubusercontent.com
-	rawURL := "https://raw.githubusercontent.com" + path
+	if gp.cache != nil && gp.cacheTTL > 0 {
+		orig := r.URL.Path
+		r.URL.Path = path
+		gp.cache.ProxyHTTP(w, r, gp.rawUpstream, gp.cacheTTL)
+		r.URL.Path = orig
+		return
+	}
+	rawURL := gp.rawUpstream + path
 	resp, err := http.Get(rawURL)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
@@ -109,12 +124,18 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 }
 
 func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstream, path string) {
+	if gp.cache != nil && gp.cacheTTL > 0 && r.Method == "GET" {
+		orig := r.URL.Path
+		r.URL.Path = path
+		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
+		r.URL.Path = orig
+		return
+	}
 	target := upstream + path
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
 
-	// Create new request with same method
 	newReq, err := http.NewRequest(r.Method, target, r.Body)
 	if err != nil {
 		http.Error(w, "request error", http.StatusInternalServerError)

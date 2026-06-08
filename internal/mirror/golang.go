@@ -9,22 +9,22 @@ import (
 )
 
 type GolangMirror struct {
-	enabled   bool
-	upstream  string
-	cacheTTL  time.Duration
+	enabled  bool
+	upstream string
+	cacheTTL time.Duration
 }
 
 func init() {
 	Register(&GolangMirror{})
 }
 
-func (g *GolangMirror) Name() string     { return "golang" }
-func (g *GolangMirror) Pattern() string   { return "/golang/" }
-func (g *GolangMirror) Upstream() string  { return g.upstream }
+func (g *GolangMirror) Name() string           { return "golang" }
+func (g *GolangMirror) Pattern() string        { return "/golang/" }
+func (g *GolangMirror) Upstream() string       { return g.upstream }
 func (g *GolangMirror) SetUpstream(url string) { g.upstream = url }
-func (g *GolangMirror) IsEnabled() bool   { return g.enabled }
-func (g *GolangMirror) SetEnabled(e bool) { g.enabled = e }
-func (g *GolangMirror) CacheTTL() string  { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
+func (g *GolangMirror) IsEnabled() bool        { return g.enabled }
+func (g *GolangMirror) SetEnabled(e bool)      { g.enabled = e }
+func (g *GolangMirror) CacheTTL() string       { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
 
 func (g *GolangMirror) ApplyConfig(cfg config.MirrorConfig) {
 	g.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (g *GolangMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/golang"):]
 		cache.ProxyHTTP(w, r, g.upstream, g.cacheTTL)
 	}
+}
+
+func (g *GolangMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	g.cacheTTL = d
+	return nil
 }
 
 func (g *GolangMirror) HealthCheck() error {

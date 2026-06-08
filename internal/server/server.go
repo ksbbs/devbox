@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,10 @@ import (
 	"devbox/internal/ratelimit"
 	"devbox/internal/store"
 )
+
+type configApplier interface {
+	ApplyConfig(cfg config.MirrorConfig)
+}
 
 // tokenCache stores registry auth tokens with expiry
 type tokenCache struct {
@@ -45,6 +50,7 @@ var registries = map[string]registryInfo{
 
 type Server struct {
 	cfg        *config.Config
+	configPath string
 	cache      *mirror.Cache
 	gitProxy   *gitproxy.GitProxy
 	dash       *dashboard.Dashboard
@@ -59,8 +65,10 @@ type Server struct {
 	frontDir       string
 }
 
-func New(cfg *config.Config, frontDir string) (*Server, error) {
-	st, err := store.New(cfg.Cache.Dir + "/../devbox.db")
+func New(cfg *config.Config, configPath string, frontDir string) (*Server, error) {
+	dbDir := filepath.Dir(filepath.Clean(cfg.Cache.Dir))
+	dbPath := filepath.Join(dbDir, "devbox.db")
+	st, err := store.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("init store: %w", err)
 	}
@@ -70,16 +78,21 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 	gp := gitproxy.New(
 		cfg.GitProxy.GithubUpstream,
 		cfg.GitProxy.GitlabUpstream,
+		cfg.GitProxy.RawUpstream,
 		cfg.GitProxy.CacheTTLd,
-		cfg.Cache.Dir,
+		cache,
 	)
 
 	for name, mCfg := range cfg.Mirrors {
 		m, ok := mirror.Get(name)
 		if ok {
-			m.SetEnabled(mCfg.Enabled)
-			if mCfg.Upstream != "" {
-				m.SetUpstream(mCfg.Upstream)
+			if applier, ok2 := m.(configApplier); ok2 {
+				applier.ApplyConfig(mCfg)
+			} else {
+				m.SetEnabled(mCfg.Enabled)
+				if mCfg.Upstream != "" {
+					m.SetUpstream(mCfg.Upstream)
+				}
 			}
 		}
 	}
@@ -93,6 +106,7 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 
 	s := &Server{
 		cfg:            cfg,
+		configPath:     configPath,
 		cache:          cache,
 		gitProxy:       gp,
 		dash:           dash,
@@ -105,6 +119,7 @@ func New(cfg *config.Config, frontDir string) (*Server, error) {
 	}
 
 	dash.SetRateLimitConfigAccessor(s)
+	dash.SetSaveConfig(s.saveConfig)
 
 	return s, nil
 }
@@ -473,6 +488,18 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (s *Server) saveConfig() error {
+	if s.configPath == "" {
+		return nil
+	}
+	if err := s.cfg.Save(s.configPath); err != nil {
+		log.Printf("[config] failed to persist config: %v", err)
+		return err
+	}
+	log.Printf("[config] config persisted to %s", s.configPath)
+	return nil
 }
 
 func (s *Server) GetRateLimitConfig() dashboard.RateLimitConfigView {

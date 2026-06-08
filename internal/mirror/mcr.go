@@ -18,13 +18,13 @@ func init() {
 	Register(&McrMirror{})
 }
 
-func (m *McrMirror) Name() string      { return "mcr" }
-func (m *McrMirror) Pattern() string    { return "/mcr/" }
-func (m *McrMirror) Upstream() string   { return m.upstream }
+func (m *McrMirror) Name() string           { return "mcr" }
+func (m *McrMirror) Pattern() string        { return "/mcr/" }
+func (m *McrMirror) Upstream() string       { return m.upstream }
 func (m *McrMirror) SetUpstream(url string) { m.upstream = url }
-func (m *McrMirror) IsEnabled() bool    { return m.enabled }
-func (m *McrMirror) SetEnabled(e bool)  { m.enabled = e }
-func (m *McrMirror) CacheTTL() string   { return fmt.Sprintf("%d", m.cacheTTL/time.Second) }
+func (m *McrMirror) IsEnabled() bool        { return m.enabled }
+func (m *McrMirror) SetEnabled(e bool)      { m.enabled = e }
+func (m *McrMirror) CacheTTL() string       { return fmt.Sprintf("%d", m.cacheTTL/time.Second) }
 
 func (m *McrMirror) ApplyConfig(cfg config.MirrorConfig) {
 	m.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (m *McrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/mcr"):]
 		cache.ProxyStream(w, r, m.upstream)
 	}
+}
+
+func (m *McrMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	m.cacheTTL = d
+	return nil
 }
 
 func (m *McrMirror) HealthCheck() error {

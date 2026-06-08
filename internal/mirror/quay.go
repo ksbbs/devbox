@@ -18,13 +18,13 @@ func init() {
 	Register(&QuayMirror{})
 }
 
-func (q *QuayMirror) Name() string      { return "quay" }
-func (q *QuayMirror) Pattern() string    { return "/quay/" }
-func (q *QuayMirror) Upstream() string   { return q.upstream }
+func (q *QuayMirror) Name() string           { return "quay" }
+func (q *QuayMirror) Pattern() string        { return "/quay/" }
+func (q *QuayMirror) Upstream() string       { return q.upstream }
 func (q *QuayMirror) SetUpstream(url string) { q.upstream = url }
-func (q *QuayMirror) IsEnabled() bool    { return q.enabled }
-func (q *QuayMirror) SetEnabled(e bool)  { q.enabled = e }
-func (q *QuayMirror) CacheTTL() string   { return fmt.Sprintf("%d", q.cacheTTL/time.Second) }
+func (q *QuayMirror) IsEnabled() bool        { return q.enabled }
+func (q *QuayMirror) SetEnabled(e bool)      { q.enabled = e }
+func (q *QuayMirror) CacheTTL() string       { return fmt.Sprintf("%d", q.cacheTTL/time.Second) }
 
 func (q *QuayMirror) ApplyConfig(cfg config.MirrorConfig) {
 	q.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (q *QuayMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/quay"):]
 		cache.ProxyStream(w, r, q.upstream)
 	}
+}
+
+func (q *QuayMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	q.cacheTTL = d
+	return nil
 }
 
 func (q *QuayMirror) HealthCheck() error {

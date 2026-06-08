@@ -18,13 +18,13 @@ func init() {
 	Register(&GithubAPIMirror{})
 }
 
-func (g *GithubAPIMirror) Name() string      { return "ghapi" }
-func (g *GithubAPIMirror) Pattern() string    { return "/ghapi/" }
-func (g *GithubAPIMirror) Upstream() string   { return g.upstream }
+func (g *GithubAPIMirror) Name() string           { return "ghapi" }
+func (g *GithubAPIMirror) Pattern() string        { return "/ghapi/" }
+func (g *GithubAPIMirror) Upstream() string       { return g.upstream }
 func (g *GithubAPIMirror) SetUpstream(url string) { g.upstream = url }
-func (g *GithubAPIMirror) IsEnabled() bool    { return g.enabled }
-func (g *GithubAPIMirror) SetEnabled(e bool)  { g.enabled = e }
-func (g *GithubAPIMirror) CacheTTL() string   { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
+func (g *GithubAPIMirror) IsEnabled() bool        { return g.enabled }
+func (g *GithubAPIMirror) SetEnabled(e bool)      { g.enabled = e }
+func (g *GithubAPIMirror) CacheTTL() string       { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
 
 func (g *GithubAPIMirror) ApplyConfig(cfg config.MirrorConfig) {
 	g.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (g *GithubAPIMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/ghapi"):]
 		cache.ProxyHTTP(w, r, g.upstream, g.cacheTTL)
 	}
+}
+
+func (g *GithubAPIMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	g.cacheTTL = d
+	return nil
 }
 
 func (g *GithubAPIMirror) HealthCheck() error {

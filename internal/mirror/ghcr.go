@@ -18,13 +18,13 @@ func init() {
 	Register(&GhcrMirror{})
 }
 
-func (g *GhcrMirror) Name() string      { return "ghcr" }
-func (g *GhcrMirror) Pattern() string    { return "/ghcr/" }
-func (g *GhcrMirror) Upstream() string   { return g.upstream }
+func (g *GhcrMirror) Name() string           { return "ghcr" }
+func (g *GhcrMirror) Pattern() string        { return "/ghcr/" }
+func (g *GhcrMirror) Upstream() string       { return g.upstream }
 func (g *GhcrMirror) SetUpstream(url string) { g.upstream = url }
-func (g *GhcrMirror) IsEnabled() bool    { return g.enabled }
-func (g *GhcrMirror) SetEnabled(e bool)  { g.enabled = e }
-func (g *GhcrMirror) CacheTTL() string   { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
+func (g *GhcrMirror) IsEnabled() bool        { return g.enabled }
+func (g *GhcrMirror) SetEnabled(e bool)      { g.enabled = e }
+func (g *GhcrMirror) CacheTTL() string       { return fmt.Sprintf("%d", g.cacheTTL/time.Second) }
 
 func (g *GhcrMirror) ApplyConfig(cfg config.MirrorConfig) {
 	g.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (g *GhcrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/ghcr"):]
 		cache.ProxyStream(w, r, g.upstream)
 	}
+}
+
+func (g *GhcrMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	g.cacheTTL = d
+	return nil
 }
 
 func (g *GhcrMirror) HealthCheck() error {

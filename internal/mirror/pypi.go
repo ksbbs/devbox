@@ -9,22 +9,22 @@ import (
 )
 
 type PypiMirror struct {
-	enabled   bool
-	upstream  string
-	cacheTTL  time.Duration
+	enabled  bool
+	upstream string
+	cacheTTL time.Duration
 }
 
 func init() {
 	Register(&PypiMirror{})
 }
 
-func (p *PypiMirror) Name() string     { return "pypi" }
-func (p *PypiMirror) Pattern() string   { return "/pypi/" }
-func (p *PypiMirror) Upstream() string  { return p.upstream }
+func (p *PypiMirror) Name() string           { return "pypi" }
+func (p *PypiMirror) Pattern() string        { return "/pypi/" }
+func (p *PypiMirror) Upstream() string       { return p.upstream }
 func (p *PypiMirror) SetUpstream(url string) { p.upstream = url }
-func (p *PypiMirror) IsEnabled() bool   { return p.enabled }
-func (p *PypiMirror) SetEnabled(e bool) { p.enabled = e }
-func (p *PypiMirror) CacheTTL() string  { return fmt.Sprintf("%d", p.cacheTTL/time.Second) }
+func (p *PypiMirror) IsEnabled() bool        { return p.enabled }
+func (p *PypiMirror) SetEnabled(e bool)      { p.enabled = e }
+func (p *PypiMirror) CacheTTL() string       { return fmt.Sprintf("%d", p.cacheTTL/time.Second) }
 
 func (p *PypiMirror) ApplyConfig(cfg config.MirrorConfig) {
 	p.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (p *PypiMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/pypi"):]
 		cache.ProxyHTTP(w, r, p.upstream, p.cacheTTL)
 	}
+}
+
+func (p *PypiMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	p.cacheTTL = d
+	return nil
 }
 
 func (p *PypiMirror) HealthCheck() error {

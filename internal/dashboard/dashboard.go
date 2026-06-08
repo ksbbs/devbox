@@ -14,14 +14,19 @@ import (
 )
 
 type Dashboard struct {
-	store     *store.Store
-	authToken string
-	publicURL string
-	rlConfig  RateLimitConfigAccessor
+	store      *store.Store
+	authToken  string
+	publicURL  string
+	rlConfig   RateLimitConfigAccessor
+	saveConfig func() error
 
-	healthMu     sync.RWMutex
-	healthCache  map[string]cachedHealth
-	healthReady  bool
+	healthMu    sync.RWMutex
+	healthCache map[string]cachedHealth
+	healthReady bool
+}
+
+func (d *Dashboard) SetSaveConfig(fn func() error) {
+	d.saveConfig = fn
 }
 
 type RateLimitConfigAccessor interface {
@@ -127,6 +132,13 @@ func (d *Dashboard) StatusHandler(w http.ResponseWriter, r *http.Request) {
 		"ghapi":    fmt.Sprintf("curl %s/ghapi/repos/owner/repo", baseURL),
 		"gitproxy": fmt.Sprintf("git clone %s/gh/user/repo", baseURL),
 		"hf":       fmt.Sprintf("huggingface-cli download --endpoint %s/hf model/name", baseURL),
+		"conda":    fmt.Sprintf("conda config --add channels %s/conda", baseURL),
+		"rubygems": fmt.Sprintf("gem source -a %s/rubygems", baseURL),
+		"cargo":    fmt.Sprintf("export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; CARGO_REGISTRIES_CRATES_IO_INDEX=%s/cargo", baseURL),
+		"nuget":    fmt.Sprintf("dotnet nuget add source %s/nuget/index.json", baseURL),
+		"apt":      fmt.Sprintf("echo 'deb %s/apt stable main' > /etc/apt/sources.list", baseURL),
+		"alpine":   fmt.Sprintf("sed -i 's|dl-cdn.alpinelinux.org|%s/alpine|g' /etc/apk/repositories", baseURL),
+		"homebrew": fmt.Sprintf("export HOMEBREW_BOTTLE_DOMAIN=%s/homebrew", baseURL),
 	}
 
 	mirrors := mirror.All()
@@ -265,6 +277,7 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 			Name     string `json:"name"`
 			Enabled  bool   `json:"enabled"`
 			Upstream string `json:"upstream"`
+			CacheTTL string `json:"cacheTTL"`
 		}
 		if !readJSON(r, &req) {
 			http.Error(w, "invalid request", http.StatusBadRequest)
@@ -278,6 +291,15 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 		m.SetEnabled(req.Enabled)
 		if req.Upstream != "" {
 			m.SetUpstream(req.Upstream)
+		}
+		if req.CacheTTL != "" {
+			if err := m.SetCacheTTL(req.CacheTTL); err != nil {
+				http.Error(w, "invalid cacheTTL: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		if d.saveConfig != nil {
+			d.saveConfig()
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 		return
@@ -348,6 +370,9 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 		d.rlConfig.SetRateLimitInterval(req.Interval)
 		d.rlConfig.SetRateLimitWhitelist(req.Whitelist)
 		d.rlConfig.SetRateLimitBlacklist(req.Blacklist)
+		if d.saveConfig != nil {
+			d.saveConfig()
+		}
 		writeJSON(w, d.rlConfig.GetRateLimitConfig())
 		return
 	}

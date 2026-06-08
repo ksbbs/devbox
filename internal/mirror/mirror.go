@@ -18,6 +18,7 @@ type Mirror interface {
 	IsEnabled() bool
 	SetEnabled(enabled bool)
 	CacheTTL() string
+	SetCacheTTL(ttl string) error
 }
 
 var healthClient = &http.Client{Timeout: 5 * time.Second}

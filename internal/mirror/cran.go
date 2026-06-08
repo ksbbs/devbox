@@ -9,22 +9,22 @@ import (
 )
 
 type CranMirror struct {
-	enabled   bool
-	upstream  string
-	cacheTTL  time.Duration
+	enabled  bool
+	upstream string
+	cacheTTL time.Duration
 }
 
 func init() {
 	Register(&CranMirror{})
 }
 
-func (c *CranMirror) Name() string     { return "cran" }
-func (c *CranMirror) Pattern() string   { return "/cran/" }
-func (c *CranMirror) Upstream() string  { return c.upstream }
+func (c *CranMirror) Name() string           { return "cran" }
+func (c *CranMirror) Pattern() string        { return "/cran/" }
+func (c *CranMirror) Upstream() string       { return c.upstream }
 func (c *CranMirror) SetUpstream(url string) { c.upstream = url }
-func (c *CranMirror) IsEnabled() bool   { return c.enabled }
-func (c *CranMirror) SetEnabled(e bool) { c.enabled = e }
-func (c *CranMirror) CacheTTL() string  { return fmt.Sprintf("%d", c.cacheTTL/time.Second) }
+func (c *CranMirror) IsEnabled() bool        { return c.enabled }
+func (c *CranMirror) SetEnabled(e bool)      { c.enabled = e }
+func (c *CranMirror) CacheTTL() string       { return fmt.Sprintf("%d", c.cacheTTL/time.Second) }
 
 func (c *CranMirror) ApplyConfig(cfg config.MirrorConfig) {
 	c.enabled = cfg.Enabled
@@ -37,6 +37,15 @@ func (c *CranMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		r.URL.Path = r.URL.Path[len("/cran"):]
 		cache.ProxyHTTP(w, r, c.upstream, c.cacheTTL)
 	}
+}
+
+func (c *CranMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	c.cacheTTL = d
+	return nil
 }
 
 func (c *CranMirror) HealthCheck() error {

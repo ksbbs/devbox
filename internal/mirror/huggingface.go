@@ -18,13 +18,13 @@ func init() {
 	Register(&HfMirror{})
 }
 
-func (h *HfMirror) Name() string            { return "hf" }
-func (h *HfMirror) Pattern() string         { return "/hf/" }
-func (h *HfMirror) Upstream() string        { return h.upstream }
-func (h *HfMirror) SetUpstream(url string)  { h.upstream = url }
-func (h *HfMirror) IsEnabled() bool         { return h.enabled }
-func (h *HfMirror) SetEnabled(e bool)       { h.enabled = e }
-func (h *HfMirror) CacheTTL() string        { return fmt.Sprintf("%d", h.cacheTTL/time.Second) }
+func (h *HfMirror) Name() string           { return "hf" }
+func (h *HfMirror) Pattern() string        { return "/hf/" }
+func (h *HfMirror) Upstream() string       { return h.upstream }
+func (h *HfMirror) SetUpstream(url string) { h.upstream = url }
+func (h *HfMirror) IsEnabled() bool        { return h.enabled }
+func (h *HfMirror) SetEnabled(e bool)      { h.enabled = e }
+func (h *HfMirror) CacheTTL() string       { return fmt.Sprintf("%d", h.cacheTTL/time.Second) }
 
 func (h *HfMirror) ApplyConfig(cfg config.MirrorConfig) {
 	h.enabled = cfg.Enabled
@@ -38,6 +38,15 @@ func (h *HfMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		// HuggingFace files can be large (model weights), use streaming proxy
 		cache.ProxyStream(w, r, h.upstream)
 	}
+}
+
+func (h *HfMirror) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	h.cacheTTL = d
+	return nil
 }
 
 func (h *HfMirror) HealthCheck() error {

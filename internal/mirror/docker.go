@@ -9,22 +9,22 @@ import (
 )
 
 type DockerMirror struct {
-	enabled   bool
-	upstream  string
-	cacheTTL  time.Duration
+	enabled  bool
+	upstream string
+	cacheTTL time.Duration
 }
 
 func init() {
 	Register(&DockerMirror{})
 }
 
-func (d *DockerMirror) Name() string     { return "docker" }
-func (d *DockerMirror) Pattern() string   { return "/docker/" }
-func (d *DockerMirror) Upstream() string  { return d.upstream }
+func (d *DockerMirror) Name() string           { return "docker" }
+func (d *DockerMirror) Pattern() string        { return "/docker/" }
+func (d *DockerMirror) Upstream() string       { return d.upstream }
 func (d *DockerMirror) SetUpstream(url string) { d.upstream = url }
-func (d *DockerMirror) IsEnabled() bool   { return d.enabled }
-func (d *DockerMirror) SetEnabled(e bool) { d.enabled = e }
-func (d *DockerMirror) CacheTTL() string  { return fmt.Sprintf("%d", d.cacheTTL/time.Second) }
+func (d *DockerMirror) IsEnabled() bool        { return d.enabled }
+func (d *DockerMirror) SetEnabled(e bool)      { d.enabled = e }
+func (d *DockerMirror) CacheTTL() string       { return fmt.Sprintf("%d", d.cacheTTL/time.Second) }
 
 func (d *DockerMirror) ApplyConfig(cfg config.MirrorConfig) {
 	d.enabled = cfg.Enabled
@@ -38,6 +38,15 @@ func (d *DockerMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		// Docker registry uses streaming for large layers
 		cache.ProxyStream(w, r, d.upstream)
 	}
+}
+
+func (d *DockerMirror) SetCacheTTL(ttl string) error {
+	dur, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	d.cacheTTL = dur
+	return nil
 }
 
 func (d *DockerMirror) HealthCheck() error {

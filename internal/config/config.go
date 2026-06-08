@@ -26,24 +26,25 @@ type ServerConfig struct {
 }
 
 type MirrorConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	Upstream  string `yaml:"upstream"`
-	CacheTTL  string `yaml:"cache_ttl"`
-	CacheTTLd time.Duration
+	Enabled   bool          `yaml:"enabled"`
+	Upstream  string        `yaml:"upstream"`
+	CacheTTL  string        `yaml:"cache_ttl"`
+	CacheTTLd time.Duration `yaml:"-"`
 }
 
 type GitProxyConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	GithubUpstream string `yaml:"github_upstream"`
-	GitlabUpstream string `yaml:"gitlab_upstream"`
-	CacheTTL       string `yaml:"cache_ttl"`
-	CacheTTLd      time.Duration
+	Enabled        bool          `yaml:"enabled"`
+	GithubUpstream string        `yaml:"github_upstream"`
+	GitlabUpstream string        `yaml:"gitlab_upstream"`
+	RawUpstream    string        `yaml:"raw_upstream"`
+	CacheTTL       string        `yaml:"cache_ttl"`
+	CacheTTLd      time.Duration `yaml:"-"`
 }
 
 type CacheConfig struct {
-	Dir     string `yaml:"dir"`
-	MaxSize string `yaml:"max_size"`
-	MaxSizeBytes int64
+	Dir          string `yaml:"dir"`
+	MaxSize      string `yaml:"max_size"`
+	MaxSizeBytes int64  `yaml:"-"`
 }
 
 type LoggingConfig struct {
@@ -56,9 +57,17 @@ type RateLimitConfig struct {
 	Enabled     bool          `yaml:"enabled"`
 	Rate        int           `yaml:"rate"`      // max requests per rolling window
 	Interval    string        `yaml:"interval"`  // rolling window length, e.g. "3h"
-	IntervalDur time.Duration // parsed
+	IntervalDur time.Duration `yaml:"-"`         // parsed
 	Whitelist   []string      `yaml:"whitelist"` // IPs exempt from rate limiting
 	Blacklist   []string      `yaml:"blacklist"` // IPs always blocked
+}
+
+func (cfg *Config) Save(path string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 func Load(path string) (*Config, error) {
@@ -109,16 +118,23 @@ func applyDefaults(cfg *Config) {
 	}
 
 	defaultMirrors := map[string]MirrorConfig{
-		"npm":    {Enabled: true, Upstream: "https://registry.npmjs.org", CacheTTL: "7d"},
-		"pypi":   {Enabled: true, Upstream: "https://pypi.org/simple", CacheTTL: "30d"},
-		"docker": {Enabled: true, Upstream: "https://registry-1.docker.io", CacheTTL: "0"},
-		"golang": {Enabled: true, Upstream: "https://proxy.golang.org", CacheTTL: "0"},
-		"cran":   {Enabled: true, Upstream: "https://cran.r-project.org", CacheTTL: "30d"},
-		"ghcr":   {Enabled: true, Upstream: "https://ghcr.io", CacheTTL: "0"},
-		"quay":   {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
-		"mcr":    {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
-		"ghapi":  {Enabled: true, Upstream: "https://api.github.com", CacheTTL: "0"},
-			"hf":     {Enabled: true, Upstream: "https://huggingface.co", CacheTTL: "7d"},
+		"npm":      {Enabled: true, Upstream: "https://registry.npmjs.org", CacheTTL: "7d"},
+		"pypi":     {Enabled: true, Upstream: "https://pypi.org/simple", CacheTTL: "30d"},
+		"docker":   {Enabled: true, Upstream: "https://registry-1.docker.io", CacheTTL: "0"},
+		"golang":   {Enabled: true, Upstream: "https://proxy.golang.org", CacheTTL: "0"},
+		"cran":     {Enabled: true, Upstream: "https://cran.r-project.org", CacheTTL: "30d"},
+		"ghcr":     {Enabled: true, Upstream: "https://ghcr.io", CacheTTL: "0"},
+		"quay":     {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
+		"mcr":      {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
+		"ghapi":    {Enabled: true, Upstream: "https://api.github.com", CacheTTL: "0"},
+		"hf":       {Enabled: true, Upstream: "https://huggingface.co", CacheTTL: "7d"},
+		"conda":    {Enabled: true, Upstream: "https://repo.anaconda.com", CacheTTL: "30d"},
+		"rubygems": {Enabled: true, Upstream: "https://rubygems.org", CacheTTL: "7d"},
+		"cargo":    {Enabled: true, Upstream: "https://static.crates.io/crates", CacheTTL: "7d"},
+		"nuget":    {Enabled: true, Upstream: "https://api.nuget.org/v3/index.json", CacheTTL: "7d"},
+		"apt":      {Enabled: true, Upstream: "http://deb.debian.org/debian", CacheTTL: "0"},
+		"alpine":   {Enabled: true, Upstream: "https://dl-cdn.alpinelinux.org/alpine", CacheTTL: "0"},
+		"homebrew": {Enabled: true, Upstream: "https://ghcr.io/v2/homebrew/core", CacheTTL: "0"},
 	}
 	for name, def := range defaultMirrors {
 		if _, ok := cfg.Mirrors[name]; !ok {
@@ -131,6 +147,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.GitProxy.GitlabUpstream == "" {
 		cfg.GitProxy.GitlabUpstream = "https://gitlab.com"
+	}
+	if cfg.GitProxy.RawUpstream == "" {
+		cfg.GitProxy.RawUpstream = "https://raw.githubusercontent.com"
 	}
 	if cfg.GitProxy.CacheTTL == "" {
 		cfg.GitProxy.CacheTTL = "7d"
