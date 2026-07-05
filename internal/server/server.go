@@ -67,9 +67,11 @@ type Server struct {
 	tokenCache  *tokenCache
 	// Custom client: strip Authorization when following 307 redirects to CDN
 	// (Docker Hub blob storage on Cloudflare rejects auth headers)
-	registryClient *http.Client
-	httpServer     *http.Server
-	frontDir       string
+	registryClient  *http.Client
+	httpServerMu    sync.Mutex
+	httpServer      *http.Server
+	shutdownPending bool
+	frontDir        string
 }
 
 func New(cfg *config.Config, configPath string, frontDir string) (*Server, error) {
@@ -211,7 +213,7 @@ func (s *Server) Start() error {
 		slog.Info("rate limiting enabled", "rate", rl.Rate, "interval", rl.Interval)
 	}
 
-	s.httpServer = &http.Server{
+	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -220,17 +222,36 @@ func (s *Server) Start() error {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
 	}
-	return s.httpServer.ListenAndServe()
+
+	s.httpServerMu.Lock()
+	s.httpServer = srv
+	// If shutdown was requested before httpServer was assigned, trigger it now
+	if s.shutdownPending {
+		s.httpServerMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
+	s.httpServerMu.Unlock()
+
+	return srv.ListenAndServe()
 }
 
 // Shutdown gracefully stops the HTTP server and closes the store.
 func (s *Server) Shutdown(ctx context.Context) error {
 	var firstErr error
+	s.httpServerMu.Lock()
 	if s.httpServer != nil {
-		if err := s.httpServer.Shutdown(ctx); err != nil {
+		srv := s.httpServer
+		s.httpServerMu.Unlock()
+		if err := srv.Shutdown(ctx); err != nil {
 			slog.Error("HTTP server shutdown error", "error", err)
 			firstErr = err
 		}
+	} else {
+		// httpServer not yet assigned; remember shutdown request so Start() can handle it
+		s.shutdownPending = true
+		s.httpServerMu.Unlock()
 	}
 	s.Close()
 	return firstErr
@@ -868,7 +889,7 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
-			strings.HasPrefix(path, "/token") || path == "/" ||
+			strings.HasPrefix(path, "/token") || path == "/" || path == "/health" ||
 			strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js") ||
 			strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {
 			next.ServeHTTP(w, r)

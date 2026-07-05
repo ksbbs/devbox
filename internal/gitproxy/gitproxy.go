@@ -10,8 +10,14 @@ import (
 	"devbox/internal/mirror"
 )
 
-// client enforces a timeout on all upstream git requests.
-var client = &http.Client{Timeout: 60 * time.Second}
+// client is used for upstream git requests with connection/header timeout only.
+// We use http.Transport.ResponseHeaderTimeout instead of Client.Timeout to avoid
+// cutting off streaming archive/raw/git-smart-HTTP body reads.
+var client = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 60 * time.Second,
+	},
+}
 
 type GitProxy struct {
 	githubUpstream string

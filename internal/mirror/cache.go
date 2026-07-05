@@ -18,8 +18,14 @@ import (
 	"time"
 )
 
-// proxyClient is used for upstream requests with a sane timeout.
-var proxyClient = &http.Client{Timeout: 60 * time.Second}
+// proxyClient is used for upstream requests with connection/header timeout only.
+// We use http.Transport.ResponseHeaderTimeout instead of Client.Timeout to avoid
+// cutting off large or slow mirror downloads during body reads.
+var proxyClient = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 60 * time.Second,
+	},
+}
 
 type Cache struct {
 	dir       string

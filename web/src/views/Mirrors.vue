@@ -73,7 +73,7 @@ function ttlText(value: number | string) {
       {{ errorMsg }}
     </div>
 
-    <div v-else-if="!loading" class="table-wrap">
+    <div v-if="!loading" class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
