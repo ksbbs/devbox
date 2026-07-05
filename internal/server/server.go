@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,8 +67,11 @@ type Server struct {
 	tokenCache  *tokenCache
 	// Custom client: strip Authorization when following 307 redirects to CDN
 	// (Docker Hub blob storage on Cloudflare rejects auth headers)
-	registryClient *http.Client
-	frontDir       string
+	registryClient  *http.Client
+	httpServerMu    sync.Mutex
+	httpServer      *http.Server
+	shutdownPending bool
+	frontDir        string
 }
 
 func New(cfg *config.Config, configPath string, frontDir string) (*Server, error) {
@@ -166,6 +170,9 @@ func (s *Server) Start() error {
 	// Docker v2 registry API — proxy handles auth transparently
 	mux.HandleFunc("/v2/", s.wrapWithDynamicStats(registryStatsName, s.registryV2Handler))
 
+	// Health check endpoint (no auth, for k8s/docker probes)
+	mux.HandleFunc("/health", s.healthHandler)
+
 	// Prometheus metrics endpoint
 	mux.HandleFunc("/metrics", s.metricsHandler)
 
@@ -200,11 +207,54 @@ func (s *Server) Start() error {
 	slog.Info("DevBox starting", "addr", addr)
 
 	handler := logMiddleware(mux, accessLog)
+	handler = s.bodyLimitMiddleware(handler)
 	if s.getLimiter() != nil {
 		handler = s.rateLimitMiddleware(handler)
 		slog.Info("rate limiting enabled", "rate", rl.Rate, "interval", rl.Interval)
 	}
-	return http.ListenAndServe(addr, handler)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       0, // streaming uploads (e.g. git push) need no read timeout
+		WriteTimeout:      0, // large downloads need no write timeout
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
+	}
+
+	s.httpServerMu.Lock()
+	s.httpServer = srv
+	// If shutdown was requested before httpServer was assigned, trigger it now
+	if s.shutdownPending {
+		s.httpServerMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
+	s.httpServerMu.Unlock()
+
+	return srv.ListenAndServe()
+}
+
+// Shutdown gracefully stops the HTTP server and closes the store.
+func (s *Server) Shutdown(ctx context.Context) error {
+	var firstErr error
+	s.httpServerMu.Lock()
+	if s.httpServer != nil {
+		srv := s.httpServer
+		s.httpServerMu.Unlock()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("HTTP server shutdown error", "error", err)
+			firstErr = err
+		}
+	} else {
+		// httpServer not yet assigned; remember shutdown request so Start() can handle it
+		s.shutdownPending = true
+		s.httpServerMu.Unlock()
+	}
+	s.Close()
+	return firstErr
 }
 
 func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
@@ -363,10 +413,10 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			w.Header().Set("Www-Authenticate", wwAuth)
 		}
 		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-		w.WriteHeader(401)
-		io.Copy(w, resp.Body)
-		return
-	}
+	w.WriteHeader(401)
+	_, _ = io.Copy(w, resp.Body)
+	return
+}
 
 	// Copy response headers
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
@@ -379,7 +429,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, error) {
@@ -500,11 +550,25 @@ func extractScopeFromAuthHeader(header string) string {
 	return header[start : start+end]
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+// bodyLimitMiddleware caps request body size to prevent memory exhaustion.
+// Mirror proxy and git proxy paths are exempt (large uploads/downloads).
+const maxBodySize = 10 << 20 // 10MB
+
+func (s *Server) bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Only limit API and auth endpoints
+		if strings.HasPrefix(path, "/api/") {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {
@@ -745,7 +809,9 @@ func (s *Server) wrapWithDynamicStats(nameFor func(*http.Request) string, handle
 		start := time.Now()
 		handler(sw, r)
 		name := nameFor(r)
-		s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status)
+		if err := s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status); err != nil {
+			slog.Warn("record traffic failed", "name", name, "error", err)
+		}
 		slog.Info("request stats",
 			"name", name,
 			"method", r.Method,
@@ -825,7 +891,7 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
-			strings.HasPrefix(path, "/token") || path == "/" ||
+			strings.HasPrefix(path, "/token") || path == "/" || path == "/health" ||
 			strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js") ||
 			strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {
 			next.ServeHTTP(w, r)

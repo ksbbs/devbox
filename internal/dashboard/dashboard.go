@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -112,7 +113,9 @@ func (d *Dashboard) runHealthChecks() {
 				r.status = "unhealthy"
 				r.err = err.Error()
 			}
-			d.store.RecordHealthCheck(m.Name(), r.status, r.err)
+			if err := d.store.RecordHealthCheck(m.Name(), r.status, r.err); err != nil {
+				slog.Warn("record health check failed", "mirror", m.Name(), "error", err)
+			}
 			ch <- r
 		}(m)
 	}
@@ -347,8 +350,6 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, "invalid cacheTTL: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-		} else if req.CacheTTL == "" && req.Upstream == "" {
-			// Only enabled field changed — keep existing TTL
 		}
 		if d.saveConfig != nil {
 			if err := d.saveConfig(); err != nil {
@@ -446,5 +447,5 @@ func (d *Dashboard) checkAuth(r *http.Request) bool {
 	}
 	token := r.Header.Get("Authorization")
 	token = strings.TrimPrefix(token, "Bearer ")
-	return token == d.authToken
+	return subtle.ConstantTimeCompare([]byte(token), []byte(d.authToken)) == 1
 }

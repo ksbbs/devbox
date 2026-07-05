@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,7 +94,7 @@ func (l *Limiter) Cleanup() {
 func parseCIDRList(list []string) []*net.IPNet {
 	var nets []*net.IPNet
 	for _, entry := range list {
-		if !containsSlash(entry) {
+		if !strings.Contains(entry, "/") {
 			entry += "/32"
 		}
 		_, ipNet, err := net.ParseCIDR(entry)
@@ -110,15 +111,6 @@ func parseIP(ipStr string) net.IP {
 		return net.ParseIP("0.0.0.0")
 	}
 	return ip
-}
-
-func containsSlash(s string) bool {
-	for _, c := range s {
-		if c == '/' {
-			return true
-		}
-	}
-	return false
 }
 
 func extractIP(r *http.Request) string {

@@ -6,15 +6,26 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// proxyClient is used for upstream requests with connection/header timeout only.
+// We use http.Transport.ResponseHeaderTimeout instead of Client.Timeout to avoid
+// cutting off large or slow mirror downloads during body reads.
+var proxyClient = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 60 * time.Second,
+	},
+}
 
 type Cache struct {
 	dir       string
@@ -43,6 +54,7 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		slog.Warn("cache read error", "path", path, "error", err)
 		c.misses.Add(1)
 		return nil, nil, false
 	}
@@ -50,9 +62,11 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 	hdrData, _ := os.ReadFile(hdrPath)
 	hdr := make(http.Header)
 	if hdrData != nil {
-		lines := string(hdrData)
-		for _, line := range splitLines(lines) {
-			if idx := indexOf(line, ':'); idx > 0 {
+		for _, line := range strings.Split(string(hdrData), "\n") {
+			if line == "" {
+				continue
+			}
+			if idx := strings.IndexByte(line, ':'); idx > 0 {
 				hdr.Set(line[:idx], strings.TrimSpace(line[idx+1:]))
 			}
 		}
@@ -60,6 +74,7 @@ func (c *Cache) Get(key string) ([]byte, http.Header, bool) {
 	if c.maxBytes > 0 && info.Size() > c.maxBytes {
 		os.Remove(path)
 		os.Remove(hdrPath)
+		os.Remove(path + ".exp")
 		c.misses.Add(1)
 		return nil, nil, false
 	}
@@ -78,18 +93,27 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 		c.usedBytes -= info.Size()
 	}
 
-	os.MkdirAll(filepath.Dir(path), 0755)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		slog.Warn("cache mkdir error", "dir", filepath.Dir(path), "error", err)
+		return
+	}
 
 	f, err := os.Create(path)
 	if err != nil {
+		slog.Warn("cache write error", "path", path, "error", err)
 		return
 	}
-	f.Write(data)
+	if _, err := f.Write(data); err != nil {
+		slog.Warn("cache write error", "path", path, "error", err)
+		f.Close()
+		return
+	}
 	f.Close()
 
 	hdrPath := path + ".hdr"
 	hf, err := os.Create(hdrPath)
 	if err != nil {
+		slog.Warn("cache header write error", "path", hdrPath, "error", err)
 		return
 	}
 	for k, vv := range hdr {
@@ -103,6 +127,7 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 		expPath := path + ".exp"
 		ef, err := os.Create(expPath)
 		if err != nil {
+			slog.Warn("cache expiry write error", "path", expPath, "error", err)
 			return
 		}
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
@@ -130,7 +155,7 @@ func (c *Cache) evictLRU() {
 
 	var entries []entry
 
-	filepath.WalkDir(c.dir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(c.dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			if err != nil {
 				return nil
@@ -177,8 +202,10 @@ func (c *Cache) IsExpired(key string) bool {
 	if err != nil {
 		return false
 	}
-	var expiry int64
-	fmt.Sscanf(string(data), "%d", &expiry)
+	expiry, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return false
+	}
 	return time.Now().Unix() > expiry
 }
 
@@ -194,7 +221,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 				}
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write(data)
+			_, _ = w.Write(data)
 			return
 		}
 	}
@@ -203,7 +230,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	resp, err := http.Get(target)
+	resp, err := proxyClient.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
 		return
@@ -228,7 +255,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
 func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream string) {
@@ -236,7 +263,7 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	resp, err := http.Get(target)
+	resp, err := proxyClient.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -249,7 +276,7 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (c *Cache) Hits() int64   { return c.hits.Load() }
@@ -269,10 +296,12 @@ func cleanDirExpired(dir string, now int64) {
 			if err != nil {
 				continue
 			}
-			var expiry int64
-			fmt.Sscanf(string(data), "%d", &expiry)
+			expiry, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+			if err != nil {
+				continue
+			}
 			if now > expiry {
-				base := filepath.Join(dir, stringsTrimSuffix(f.Name(), ".exp"))
+				base := filepath.Join(dir, strings.TrimSuffix(f.Name(), ".exp"))
 				os.Remove(base)
 				os.Remove(base + ".hdr")
 				os.Remove(base + ".exp")
@@ -284,38 +313,4 @@ func cleanDirExpired(dir string, now int64) {
 func (c *Cache) keyPath(key string) string {
 	hash := sha256.Sum256([]byte(key))
 	return filepath.Join(c.dir, hex.EncodeToString(hash[:]))
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			line := s[start:i]
-			if line != "" {
-				lines = append(lines, line)
-			}
-			start = i + 1
-		}
-	}
-	if start < len(s) && s[start:] != "" {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func indexOf(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
-func stringsTrimSuffix(s, suffix string) string {
-	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
-		return s[:len(s)-len(suffix)]
-	}
-	return s
 }

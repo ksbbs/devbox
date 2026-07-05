@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"devbox/internal/config"
 	"devbox/internal/mirror"
@@ -48,16 +51,24 @@ func main() {
 		log.Fatalf("init server: %v", err)
 	}
 
+	// Graceful shutdown on SIGINT/SIGTERM
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
 		log.Println("Shutting down...")
-		srv.Close()
-		os.Exit(0)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("shutdown error: %v", err)
+		}
 	}()
 
 	if err := srv.Start(); err != nil {
-		log.Fatalf("server error: %v", err)
+		if err == http.ErrServerClosed {
+			log.Println("server stopped")
+		} else {
+			log.Fatalf("server error: %v", err)
+		}
 	}
 }

@@ -44,6 +44,34 @@ mirrors:
     enabled: true
     upstream: "https://huggingface.co"
     cache_ttl: "7d"
+  conda:
+    enabled: true
+    upstream: "https://repo.anaconda.com"
+    cache_ttl: "30d"
+  rubygems:
+    enabled: true
+    upstream: "https://rubygems.org"
+    cache_ttl: "7d"
+  cargo:
+    enabled: true
+    upstream: "https://static.crates.io/crates"
+    cache_ttl: "7d"
+  nuget:
+    enabled: true
+    upstream: "https://api.nuget.org/v3/index.json"
+    cache_ttl: "7d"
+  apt:
+    enabled: true
+    upstream: "https://deb.debian.org/debian"
+    cache_ttl: "0"
+  alpine:
+    enabled: true
+    upstream: "https://dl-cdn.alpinelinux.org/alpine"
+    cache_ttl: "0"
+  homebrew:
+    enabled: true
+    upstream: "https://ghcr.io/v2/homebrew/core"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true

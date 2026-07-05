@@ -10,6 +10,15 @@ import (
 	"devbox/internal/mirror"
 )
 
+// client is used for upstream git requests with connection/header timeout only.
+// We use http.Transport.ResponseHeaderTimeout instead of Client.Timeout to avoid
+// cutting off streaming archive/raw/git-smart-HTTP body reads.
+var client = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 60 * time.Second,
+	},
+}
+
 type GitProxy struct {
 	githubUpstream string
 	gitlabUpstream string
@@ -76,7 +85,7 @@ func isRawRequest(path string) bool {
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
 		target := upstream + path
-		if resp, err := http.Head(target); err == nil {
+		if resp, err := client.Head(target); err == nil {
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -92,7 +101,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 		return
 	}
 	target := upstream + path
-	resp, err := http.Get(target)
+	resp, err := client.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -105,13 +114,13 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
 		target := gp.rawUpstream + path
-		if resp, err := http.Head(target); err == nil {
+		if resp, err := client.Head(target); err == nil {
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -127,7 +136,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	rawURL := gp.rawUpstream + path
-	resp, err := http.Get(rawURL)
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -140,7 +149,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstream, path string) {
@@ -163,7 +172,7 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 	}
 	copyRequestHeaders(newReq, r)
 
-	resp, err := http.DefaultClient.Do(newReq)
+	resp, err := client.Do(newReq)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -171,7 +180,7 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 	defer resp.Body.Close()
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func copyResponseHeaders(w http.ResponseWriter, resp *http.Response) {

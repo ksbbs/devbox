@@ -4,22 +4,29 @@ import { getMirrorConfig, updateMirrorConfig } from '../api/client'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
+const errorMsg = ref('')
 const updating = ref<string | null>(null)
 const saved = ref<string | null>(null)
 
 onMounted(async () => {
   try {
     mirrors.value = await getMirrorConfig()
-  } catch { mirrors.value = [] }
+  } catch (e: any) {
+    mirrors.value = []
+    errorMsg.value = e.response?.statusText || '加载镜像配置失败'
+  }
   loading.value = false
 })
 
 async function toggleMirror(m: any) {
   updating.value = m.name
+  errorMsg.value = ''
   try {
     await updateMirrorConfig(m.name, !m.enabled)
     m.enabled = !m.enabled
     flashSaved(m.name)
+  } catch (e: any) {
+    errorMsg.value = e.response?.statusText || '操作失败'
   } finally {
     updating.value = null
   }
@@ -27,9 +34,12 @@ async function toggleMirror(m: any) {
 
 async function updateUpstream(m: any) {
   updating.value = m.name
+  errorMsg.value = ''
   try {
     await updateMirrorConfig(m.name, m.enabled, m.upstream)
     flashSaved(m.name)
+  } catch (e: any) {
+    errorMsg.value = e.response?.statusText || '保存失败'
   } finally {
     updating.value = null
   }
@@ -59,7 +69,11 @@ function ttlText(value: number | string) {
 
     <div v-if="loading" class="panel-pad text-sm text-cyan-400">loading mirrors...</div>
 
-    <div v-else class="table-wrap">
+    <div v-if="errorMsg" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+      {{ errorMsg }}
+    </div>
+
+    <div v-if="!loading" class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>

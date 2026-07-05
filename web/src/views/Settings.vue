@@ -10,12 +10,14 @@ const rlWhitelist = ref('')
 const rlBlacklist = ref('')
 const rlSaving = ref(false)
 const rlMsg = ref('')
+const rlLoadError = ref('')
+const loading = ref(true)
 
 onMounted(async () => {
   try {
     const config = await getPublicConfig()
     publicUrl.value = config.publicUrl || ''
-  } catch { /* ignore */ }
+  } catch { /* ignore - non-critical */ }
   try {
     const rl = await getRateLimitConfig()
     rlEnabled.value = rl.enabled
@@ -23,7 +25,10 @@ onMounted(async () => {
     rlInterval.value = rl.interval || '3h'
     rlWhitelist.value = (rl.whitelist || []).join(', ')
     rlBlacklist.value = (rl.blacklist || []).join(', ')
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    rlLoadError.value = e.response?.statusText || '加载限流配置失败'
+  }
+  loading.value = false
 })
 
 async function saveRateLimit() {
@@ -38,8 +43,8 @@ async function saveRateLimit() {
     rlInterval.value = res.interval || rlInterval.value
     rlMsg.value = 'saved'
     setTimeout(() => rlMsg.value = '', 1500)
-  } catch {
-    rlMsg.value = 'save failed'
+  } catch (e: any) {
+    rlMsg.value = e.response?.statusText || 'save failed'
   }
   rlSaving.value = false
 }
@@ -64,7 +69,13 @@ const capabilities = [
       <p class="page-subtitle">运行信息与访问治理配置。</p>
     </section>
 
-    <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+    <div v-if="loading" class="panel-pad text-sm text-cyan-400">loading settings...</div>
+
+    <div v-if="rlLoadError" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+      {{ rlLoadError }}
+    </div>
+
+    <div v-if="!loading" class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
       <section class="panel-pad">
         <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-900 pb-3">
           <div>
