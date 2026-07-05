@@ -103,7 +103,11 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 		slog.Warn("cache write error", "path", path, "error", err)
 		return
 	}
-	f.Write(data)
+	if _, err := f.Write(data); err != nil {
+		slog.Warn("cache write error", "path", path, "error", err)
+		f.Close()
+		return
+	}
 	f.Close()
 
 	hdrPath := path + ".hdr"
@@ -217,7 +221,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 				}
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write(data)
+			_, _ = w.Write(data)
 			return
 		}
 	}
@@ -251,7 +255,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
 func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream string) {
@@ -272,7 +276,7 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (c *Cache) Hits() int64   { return c.hits.Load() }

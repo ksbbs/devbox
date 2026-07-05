@@ -413,10 +413,10 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			w.Header().Set("Www-Authenticate", wwAuth)
 		}
 		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-		w.WriteHeader(401)
-		io.Copy(w, resp.Body)
-		return
-	}
+	w.WriteHeader(401)
+	_, _ = io.Copy(w, resp.Body)
+	return
+}
 
 	// Copy response headers
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
@@ -429,7 +429,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, error) {
@@ -553,7 +553,7 @@ func extractScopeFromAuthHeader(header string) string {
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // bodyLimitMiddleware caps request body size to prevent memory exhaustion.
@@ -809,7 +809,9 @@ func (s *Server) wrapWithDynamicStats(nameFor func(*http.Request) string, handle
 		start := time.Now()
 		handler(sw, r)
 		name := nameFor(r)
-		s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status)
+		if err := s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status); err != nil {
+			slog.Warn("record traffic failed", "name", name, "error", err)
+		}
 		slog.Info("request stats",
 			"name", name,
 			"method", r.Method,

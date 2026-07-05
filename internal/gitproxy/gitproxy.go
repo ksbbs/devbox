@@ -114,7 +114,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
@@ -149,7 +149,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 	}
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstream, path string) {
@@ -180,7 +180,7 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 	defer resp.Body.Close()
 	copyResponseHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func copyResponseHeaders(w http.ResponseWriter, resp *http.Response) {

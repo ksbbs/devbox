@@ -15,5 +15,12 @@ linters-settings:
       - fmt.Fprintf
       - fmt.Fprintln
 
+issues:
+  exclude-rules:
+    # Test handlers often ignore write errors — not meaningful in tests
+    - path: _test\.go
+      linters:
+        - errcheck
+
 run:
   timeout: 3m
