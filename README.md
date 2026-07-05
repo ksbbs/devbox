@@ -16,12 +16,22 @@
 | MCR 镜像 | 代理 `https://mcr.microsoft.com`（Microsoft Container Registry） |
 | Go 模块镜像 | 代理 `https://proxy.golang.org` |
 | CRAN 镜像 | 代理 `https://cran.r-project.org` |
+| Conda 镜像 | 代理 `https://repo.anaconda.com` |
+| RubyGems 镜像 | 代理 `https://rubygems.org` |
+| Cargo 镜像 | 代理 `https://static.crates.io/crates` |
+| NuGet 镜像 | 代理 `https://api.nuget.org/v3/index.json` |
+| APT 镜像 | 代理 `https://deb.debian.org/debian` |
+| Alpine 镜像 | 代理 `https://dl-cdn.alpinelinux.org/alpine` |
+| Homebrew 镜像 | 代理 `https://ghcr.io/v2/homebrew/core` |
 | HuggingFace 加速 | 代理 `https://huggingface.co` 模型文件下载 |
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
 | GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
 | Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
-| 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI 包 |
-| IP 限流 | 滚动时间窗口限流防滥用，白名单免限速 |
+| 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI、Conda、RubyGems、Cargo、NuGet 包 |
+| IP 限流 | 滚动时间窗口限流防滥用，白名单免限速，黑名单直接拒绝 |
+| 健康检查端点 | `/health` 端点供 Kubernetes/Docker probe 使用 |
+| Prometheus 指标 | `/metrics` 端点暴露缓存命中率等指标 |
+| 优雅关闭 | 收到 SIGTERM 后等待请求完成再退出 |
 | Web Dashboard | 极客轻量控制台风格，提供状态总览、轻量流量趋势、访问日志、配置管理、使用指南 |
 | 日志自动清除 | 流量日志保留可配置天数（默认 30 天），过期自动清理 |
 
@@ -135,6 +145,34 @@ mirrors:
     enabled: true
     upstream: "https://huggingface.co"
     cache_ttl: "7d"
+  conda:
+    enabled: true
+    upstream: "https://repo.anaconda.com"
+    cache_ttl: "30d"
+  rubygems:
+    enabled: true
+    upstream: "https://rubygems.org"
+    cache_ttl: "7d"
+  cargo:
+    enabled: true
+    upstream: "https://static.crates.io/crates"
+    cache_ttl: "7d"
+  nuget:
+    enabled: true
+    upstream: "https://api.nuget.org/v3/index.json"
+    cache_ttl: "7d"
+  apt:
+    enabled: true
+    upstream: "https://deb.debian.org/debian"
+    cache_ttl: "0"
+  alpine:
+    enabled: true
+    upstream: "https://dl-cdn.alpinelinux.org/alpine"
+    cache_ttl: "0"
+  homebrew:
+    enabled: true
+    upstream: "https://ghcr.io/v2/homebrew/core"
+    cache_ttl: "0"
 
 gitproxy:
   enabled: true
@@ -147,6 +185,7 @@ rate_limit:
   rate: 500                    # 每个 IP 在滚动时间窗口内最大请求数
   interval: "3h"               # 滚动时间窗口长度（如 30m、3h、1d）
   whitelist: []                # 白名单 IP（免限速）
+  blacklist: []                # 黑名单 IP（永远禁止）
 
 cache:
   dir: "/data/cache"

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -67,6 +68,7 @@ type Server struct {
 	// Custom client: strip Authorization when following 307 redirects to CDN
 	// (Docker Hub blob storage on Cloudflare rejects auth headers)
 	registryClient *http.Client
+	httpServer     *http.Server
 	frontDir       string
 }
 
@@ -166,6 +168,9 @@ func (s *Server) Start() error {
 	// Docker v2 registry API — proxy handles auth transparently
 	mux.HandleFunc("/v2/", s.wrapWithDynamicStats(registryStatsName, s.registryV2Handler))
 
+	// Health check endpoint (no auth, for k8s/docker probes)
+	mux.HandleFunc("/health", s.healthHandler)
+
 	// Prometheus metrics endpoint
 	mux.HandleFunc("/metrics", s.metricsHandler)
 
@@ -200,11 +205,35 @@ func (s *Server) Start() error {
 	slog.Info("DevBox starting", "addr", addr)
 
 	handler := logMiddleware(mux, accessLog)
+	handler = s.bodyLimitMiddleware(handler)
 	if s.getLimiter() != nil {
 		handler = s.rateLimitMiddleware(handler)
 		slog.Info("rate limiting enabled", "rate", rl.Rate, "interval", rl.Interval)
 	}
-	return http.ListenAndServe(addr, handler)
+
+	s.httpServer = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       0, // streaming uploads (e.g. git push) need no read timeout
+		WriteTimeout:      0, // large downloads need no write timeout
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
+	}
+	return s.httpServer.ListenAndServe()
+}
+
+// Shutdown gracefully stops the HTTP server and closes the store.
+func (s *Server) Shutdown(ctx context.Context) error {
+	var firstErr error
+	if s.httpServer != nil {
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			slog.Error("HTTP server shutdown error", "error", err)
+			firstErr = err
+		}
+	}
+	s.Close()
+	return firstErr
 }
 
 func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
@@ -500,11 +529,25 @@ func extractScopeFromAuthHeader(header string) string {
 	return header[start : start+end]
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// bodyLimitMiddleware caps request body size to prevent memory exhaustion.
+// Mirror proxy and git proxy paths are exempt (large uploads/downloads).
+const maxBodySize = 10 << 20 // 10MB
+
+func (s *Server) bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Only limit API and auth endpoints
+		if strings.HasPrefix(path, "/api/") {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {

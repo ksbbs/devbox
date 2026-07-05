@@ -1,0 +1,19 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosimple
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (io.Closer).Close
+      - fmt.Fprint
+      - fmt.Fprintf
+      - fmt.Fprintln
+
+run:
+  timeout: 3m

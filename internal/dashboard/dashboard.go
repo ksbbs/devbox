@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -446,5 +447,5 @@ func (d *Dashboard) checkAuth(r *http.Request) bool {
 	}
 	token := r.Header.Get("Authorization")
 	token = strings.TrimPrefix(token, "Bearer ")
-	return token == d.authToken
+	return subtle.ConstantTimeCompare([]byte(token), []byte(d.authToken)) == 1
 }

@@ -10,6 +10,9 @@ import (
 	"devbox/internal/mirror"
 )
 
+// client enforces a timeout on all upstream git requests.
+var client = &http.Client{Timeout: 60 * time.Second}
+
 type GitProxy struct {
 	githubUpstream string
 	gitlabUpstream string
@@ -76,7 +79,7 @@ func isRawRequest(path string) bool {
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
 		target := upstream + path
-		if resp, err := http.Head(target); err == nil {
+		if resp, err := client.Head(target); err == nil {
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -92,7 +95,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 		return
 	}
 	target := upstream + path
-	resp, err := http.Get(target)
+	resp, err := client.Get(target)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -111,7 +114,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
 	if gp.cache != nil && gp.cacheTTL > 0 {
 		target := gp.rawUpstream + path
-		if resp, err := http.Head(target); err == nil {
+		if resp, err := client.Head(target); err == nil {
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -127,7 +130,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 		return
 	}
 	rawURL := gp.rawUpstream + path
-	resp, err := http.Get(rawURL)
+	resp, err := client.Get(rawURL)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
@@ -163,7 +166,7 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 	}
 	copyRequestHeaders(newReq, r)
 
-	resp, err := http.DefaultClient.Do(newReq)
+	resp, err := client.Do(newReq)
 	if err != nil {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return

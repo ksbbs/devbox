@@ -15,7 +15,8 @@ type Store struct {
 
 func New(path string) (*Store, error) {
 	os.MkdirAll(path[:len(path)-len("/devbox.db")], 0755)
-	db, err := sql.Open("sqlite", path)
+	// Enable WAL mode and busy timeout for better concurrency
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}

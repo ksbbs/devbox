@@ -16,11 +16,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o devbox ./cmd/devbox/
 
 # Stage 3: Final image
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates git
+RUN apk add --no-cache ca-certificates git curl
 COPY --from=backend /app/devbox /usr/local/bin/devbox
 COPY --from=frontend /app/web/dist /usr/share/devbox/frontend
 COPY configs/devbox.yaml /etc/devbox/default.yaml
 VOLUME /data
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -sf http://localhost:8080/health || exit 1
 ENTRYPOINT ["devbox"]
-CMD ["-c", "/etc/devbox/default.yaml", "-f", "/usr/share/devbox/frontend"
+CMD ["-c", "/etc/devbox/default.yaml", "-f", "/usr/share/devbox/frontend"]

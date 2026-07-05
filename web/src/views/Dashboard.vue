@@ -5,6 +5,7 @@ import StatusCard from '../components/StatusCard.vue'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
+const errorMsg = ref('')
 const traffic = ref<any[]>([])
 const hourlyTraffic = ref<any[]>([])
 const logs = ref<any[]>([])
@@ -134,6 +135,7 @@ onMounted(async () => {
   ])
 
   if (statusRes.status === 'fulfilled') mirrors.value = Array.isArray(statusRes.value) ? statusRes.value : []
+  else errorMsg.value = 'Failed to load mirror status'
   if (trafficRes.status === 'fulfilled') traffic.value = Array.isArray(trafficRes.value) ? trafficRes.value : []
   if (hourlyRes.status === 'fulfilled') hourlyTraffic.value = Array.isArray(hourlyRes.value) ? hourlyRes.value : []
   if (logsRes.status === 'fulfilled') logs.value = Array.isArray(logsRes.value) ? logsRes.value : []
@@ -199,6 +201,10 @@ function sparklinePoints(values: number[]) {
         <code v-if="publicUrl" class="code-line w-fit max-w-full truncate">{{ publicUrl }}</code>
       </div>
     </section>
+
+    <div v-if="errorMsg" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+      {{ errorMsg }}
+    </div>
 
     <section class="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <div class="panel-pad">
