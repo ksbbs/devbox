@@ -141,7 +141,7 @@ func TestReleaseHandlersRequireAuth(t *testing.T) {
 	}
 }
 
-func TestLatestReleaseAssetRefreshesStaleCache(t *testing.T) {
+func TestLatestReleaseAssetRefreshesWhenCachedAssetMissing(t *testing.T) {
 	dashboard := newReleaseTestDashboard(t)
 	dashboard.releaseCache[releaseCacheKey("moesnow", "March7thAssistant")] = cachedRelease{
 		release:   githubRelease{TagName: "v1.0.0"},
@@ -157,11 +157,39 @@ func TestLatestReleaseAssetRefreshesStaleCache(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/release-sources", nil)
 	release, asset, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "update.7z")
 	if err != nil || calls != 1 || release.TagName != "v1.2.3" || asset.ID != 42 {
-		t.Fatalf("stale cache was not refreshed: calls=%d release=%+v asset=%+v err=%v", calls, release, asset, err)
+		t.Fatalf("unexpired cache without the asset was not refreshed: calls=%d release=%+v asset=%+v err=%v", calls, release, asset, err)
 	}
 
 	if _, _, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "missing.7z"); !errors.Is(err, errAssetNotFound) {
 		t.Fatalf("expected errAssetNotFound, got %v", err)
+	}
+}
+
+func TestLatestReleaseAssetRefreshesExpiredCache(t *testing.T) {
+	dashboard := newReleaseTestDashboard(t)
+	key := releaseCacheKey("moesnow", "March7thAssistant")
+	// Expired entry that still lists the asset: only a TTL check forces a re-query.
+	dashboard.releaseCache[key] = cachedRelease{
+		release: githubRelease{
+			TagName: "v1.0.0",
+			Assets:  []githubAsset{{ID: 7, Name: "update.7z", Size: 3}},
+		},
+		expiresAt: time.Now().Add(-time.Minute),
+	}
+	calls := 0
+	dashboard.releaseHTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		body := `{"tag_name":"v1.2.3","assets":[{"id":42,"name":"update.7z","size":7}]}`
+		return testResponse(http.StatusOK, "application/json", body), nil
+	})}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/release-sources", nil)
+	release, asset, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "update.7z")
+	if err != nil || calls != 1 || release.TagName != "v1.2.3" || asset.ID != 42 {
+		t.Fatalf("expired cache was not refreshed: calls=%d release=%+v asset=%+v err=%v", calls, release, asset, err)
+	}
+	if _, _, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "update.7z"); err != nil || calls != 1 {
+		t.Fatalf("refreshed entry was not cached: calls=%d err=%v", calls, err)
 	}
 }
 
