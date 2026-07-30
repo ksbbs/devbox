@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -31,6 +32,8 @@ const (
 )
 
 var githubNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+var errAssetNotFound = errors.New("asset not found in latest release")
 
 type githubRelease struct {
 	TagName     string        `json:"tag_name"`
@@ -188,13 +191,13 @@ func (d *Dashboard) createReleaseSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	release, err := d.latestRelease(r, owner, repo, true)
-	if err != nil {
-		http.Error(w, "get latest release: "+err.Error(), http.StatusBadGateway)
+	release, _, err := d.latestReleaseAsset(r, owner, repo, assetName)
+	if errors.Is(err, errAssetNotFound) {
+		http.Error(w, errAssetNotFound.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	if _, ok := findAsset(release, assetName); !ok {
-		http.Error(w, "asset not found in latest release", http.StatusUnprocessableEntity)
+	if err != nil {
+		http.Error(w, "get latest release: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -226,7 +229,7 @@ func (d *Dashboard) releaseSourceViewFromRelease(source store.ReleaseSource, rel
 	}
 	asset, ok := findAsset(release, source.AssetName)
 	if !ok {
-		view.Error = "asset not found in latest release"
+		view.Error = errAssetNotFound.Error()
 		return view
 	}
 	view.Available = true
@@ -246,14 +249,13 @@ func (d *Dashboard) createDownloadTicket(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	release, err := d.latestRelease(r, source.Owner, source.Repo, true)
-	if err != nil {
-		http.Error(w, "get latest release: "+err.Error(), http.StatusBadGateway)
+	release, asset, err := d.latestReleaseAsset(r, source.Owner, source.Repo, source.AssetName)
+	if errors.Is(err, errAssetNotFound) {
+		http.Error(w, errAssetNotFound.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	asset, ok := findAsset(release, source.AssetName)
-	if !ok {
-		http.Error(w, "asset not found in latest release", http.StatusUnprocessableEntity)
+	if err != nil {
+		http.Error(w, "get latest release: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	ticket, err := randomTicket()
@@ -360,13 +362,10 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (d *Dashboard) latestRelease(r *http.Request, owner, repo string, refresh bool) (githubRelease, error) {
-	key := strings.ToLower(owner + "/" + repo)
+	key := releaseCacheKey(owner, repo)
 	if !refresh {
-		d.releaseCacheMu.Lock()
-		entry, ok := d.releaseCache[key]
-		d.releaseCacheMu.Unlock()
-		if ok && time.Now().Before(entry.expiresAt) {
-			return entry.release, nil
+		if release, ok := d.cachedLatestRelease(owner, repo); ok {
+			return release, nil
 		}
 	}
 
@@ -394,6 +393,40 @@ func (d *Dashboard) latestRelease(r *http.Request, owner, repo string, refresh b
 	d.releaseCache[key] = cachedRelease{release: release, expiresAt: time.Now().Add(releaseCacheTTL)}
 	d.releaseCacheMu.Unlock()
 	return release, nil
+}
+
+// latestReleaseAsset resolves the pinned asset from the cached latest release and
+// only queries GitHub when the cache is cold or no longer lists the asset, so
+// repeated downloads do not spend the unauthenticated API quota.
+func (d *Dashboard) latestReleaseAsset(r *http.Request, owner, repo, assetName string) (githubRelease, githubAsset, error) {
+	if release, ok := d.cachedLatestRelease(owner, repo); ok {
+		if asset, found := findAsset(release, assetName); found {
+			return release, asset, nil
+		}
+	}
+	release, err := d.latestRelease(r, owner, repo, true)
+	if err != nil {
+		return githubRelease{}, githubAsset{}, err
+	}
+	asset, found := findAsset(release, assetName)
+	if !found {
+		return release, githubAsset{}, errAssetNotFound
+	}
+	return release, asset, nil
+}
+
+func (d *Dashboard) cachedLatestRelease(owner, repo string) (githubRelease, bool) {
+	d.releaseCacheMu.Lock()
+	defer d.releaseCacheMu.Unlock()
+	entry, ok := d.releaseCache[releaseCacheKey(owner, repo)]
+	if !ok || !time.Now().Before(entry.expiresAt) {
+		return githubRelease{}, false
+	}
+	return entry.release, true
+}
+
+func releaseCacheKey(owner, repo string) string {
+	return strings.ToLower(owner + "/" + repo)
 }
 
 func parseGitHubReleasesURL(rawURL string) (string, string, error) {
@@ -455,6 +488,21 @@ func setGitHubHeaders(req *http.Request) {
 
 func newReleaseDownloadClient() *http.Client {
 	return &http.Client{
+		// No client-wide timeout: assets stream for minutes. Connection setup and
+		// the wait for response headers are bounded by the transport instead.
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return errors.New("too many redirects")

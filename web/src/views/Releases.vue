@@ -113,7 +113,7 @@ function flashStatus(message: string) {
 }
 
 function formatBytes(value?: number) {
-  if (!value) return '-'
+  if (value === undefined || !Number.isFinite(value)) return '-'
   const units = ['B', 'KB', 'MB', 'GB']
   let size = value
   let unit = 0

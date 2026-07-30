@@ -3,6 +3,7 @@ package dashboard
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"devbox/internal/store"
 )
@@ -55,6 +57,7 @@ func TestReleaseSourceCreateTicketAndDownload(t *testing.T) {
 		"published_at":"2026-07-26T05:18:51Z",
 		"assets":[{"id":42,"name":"update.7z","size":7,"content_type":"application/x-7z-compressed","digest":"sha256:test"}]
 	}`
+	releaseCalls := 0
 	dashboard.releaseHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.String() != githubAPIBase+"/repos/moesnow/March7thAssistant/releases/latest" {
 			t.Fatalf("unexpected release URL: %s", req.URL)
@@ -62,6 +65,7 @@ func TestReleaseSourceCreateTicketAndDownload(t *testing.T) {
 		if req.Header.Get("X-GitHub-Api-Version") != githubAPIVersion {
 			t.Fatal("missing GitHub API version header")
 		}
+		releaseCalls++
 		return testResponse(http.StatusOK, "application/json", releaseJSON), nil
 	})}
 
@@ -95,6 +99,9 @@ func TestReleaseSourceCreateTicketAndDownload(t *testing.T) {
 	}
 	if ticketResult["ticket"] == "" {
 		t.Fatal("empty download ticket")
+	}
+	if releaseCalls != 1 {
+		t.Fatalf("expected the warm release cache to serve the ticket, GitHub calls=%d", releaseCalls)
 	}
 
 	dashboard.downloadHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -131,6 +138,44 @@ func TestReleaseHandlersRequireAuth(t *testing.T) {
 	dashboard.ReleaseSourcesHandler(rec, httptest.NewRequest(http.MethodGet, "/api/release-sources", nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rec.Code)
+	}
+}
+
+func TestLatestReleaseAssetRefreshesStaleCache(t *testing.T) {
+	dashboard := newReleaseTestDashboard(t)
+	dashboard.releaseCache[releaseCacheKey("moesnow", "March7thAssistant")] = cachedRelease{
+		release:   githubRelease{TagName: "v1.0.0"},
+		expiresAt: time.Now().Add(releaseCacheTTL),
+	}
+	calls := 0
+	dashboard.releaseHTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		body := `{"tag_name":"v1.2.3","assets":[{"id":42,"name":"update.7z","size":7}]}`
+		return testResponse(http.StatusOK, "application/json", body), nil
+	})}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/release-sources", nil)
+	release, asset, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "update.7z")
+	if err != nil || calls != 1 || release.TagName != "v1.2.3" || asset.ID != 42 {
+		t.Fatalf("stale cache was not refreshed: calls=%d release=%+v asset=%+v err=%v", calls, release, asset, err)
+	}
+
+	if _, _, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "missing.7z"); !errors.Is(err, errAssetNotFound) {
+		t.Fatalf("expected errAssetNotFound, got %v", err)
+	}
+}
+
+func TestReleaseDownloadClientTimeouts(t *testing.T) {
+	client := newReleaseDownloadClient()
+	if client.Timeout != 0 {
+		t.Fatalf("client timeout must stay unset for large downloads, got %s", client.Timeout)
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("unexpected transport %T", client.Transport)
+	}
+	if transport.ResponseHeaderTimeout <= 0 || transport.TLSHandshakeTimeout <= 0 || transport.DialContext == nil {
+		t.Fatalf("transport does not bound connection setup: %+v", transport)
 	}
 }
 
