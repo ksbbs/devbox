@@ -1,7 +1,10 @@
-name: Build and Push
+name: Build, Test and Push
 
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -10,7 +13,112 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          install-mode: goinstall
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run Go tests
+        run: CGO_ENABLED=0 go test ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: devbox:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start container
+        run: docker run -d --name devbox-test -p 8080:8080 -v devbox-test-data:/data devbox:test -c /etc/devbox/default.yaml -f /usr/share/devbox/frontend
+
+      - name: Wait and check startup
+        run: |
+          sleep 3
+          docker logs devbox-test 2>&1 || true
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:8080/api/status >/dev/null 2>&1; then
+              echo "Service is up!"
+              exit 0
+            fi
+            echo "Waiting... ($i/10)"
+            sleep 2
+          done
+          echo "Service failed to start"
+          docker logs devbox-test 2>&1
+          exit 1
+
+      - name: Test status endpoint
+        run: |
+          STATUS=$(curl -sf http://localhost:8080/api/status)
+          echo "Status response: $STATUS"
+
+      - name: Test health endpoint
+        run: |
+          HEALTH=$(curl -sf http://localhost:8080/health)
+          echo "Health response: $HEALTH"
+
+      - name: Test dashboard frontend
+        run: |
+          HTML=$(curl -sf http://localhost:8080/)
+          echo "Frontend response length: ${#HTML}"
+          if [ -z "$HTML" ]; then echo "FAIL: empty frontend response" && exit 1; fi
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f devbox-test
+
+  cross-compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Verify arm64 cross-compilation
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/devbox/
+
+  push:
+    needs: [lint, build-and-test, cross-compile-check]
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,21 +131,35 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to ghcr
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64
