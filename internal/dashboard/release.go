@@ -294,19 +294,36 @@ func (d *Dashboard) createDownloadTicket(w http.ResponseWriter, r *http.Request,
 }
 
 func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	ticketValue := r.URL.Query().Get("ticket")
 	d.ticketMu.Lock()
 	ticket, ok := d.downloadTickets[ticketValue]
-	if ok {
+	if ok && r.Method != http.MethodHead {
 		delete(d.downloadTickets, ticketValue)
 	}
 	d.ticketMu.Unlock()
 	if !ok || time.Now().After(ticket.expiresAt) {
 		http.Error(w, "invalid or expired download ticket", http.StatusUnauthorized)
+		return
+	}
+
+	contentType := ticket.asset.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if ticket.asset.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(ticket.asset.Size, 10))
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": ticket.asset.Name}))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
@@ -332,29 +349,17 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(strings.ToLower(contentType), "application/json") {
+	responseContentType := resp.Header.Get("Content-Type")
+	if strings.Contains(strings.ToLower(responseContentType), "application/json") {
 		http.Error(w, "GitHub returned asset metadata instead of file content", http.StatusBadGateway)
 		return
 	}
-	if contentType == "" {
-		contentType = ticket.asset.ContentType
-	}
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
 	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
 		w.Header().Set("Content-Length", contentLength)
-	} else if ticket.asset.Size > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(ticket.asset.Size, 10))
 	}
 	if etag := resp.Header.Get("ETag"); etag != "" {
 		w.Header().Set("ETag", etag)
 	}
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": ticket.asset.Name}))
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, resp.Body); err != nil && !errors.Is(err, r.Context().Err()) {
 		slog.Warn("release download interrupted", "source_id", ticket.sourceID, "tag", ticket.tagName, "error", err)

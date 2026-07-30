@@ -193,6 +193,62 @@ func TestLatestReleaseAssetRefreshesExpiredCache(t *testing.T) {
 	}
 }
 
+func TestReleaseDownloadHeadDoesNotConsumeTicket(t *testing.T) {
+	dashboard := newReleaseTestDashboard(t)
+	releaseJSON := `{
+		"tag_name":"v1.2.3",
+		"assets":[{"id":42,"name":"update.7z","size":7,"content_type":"application/x-7z-compressed"}]
+	}`
+	dashboard.releaseHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return testResponse(http.StatusOK, "application/json", releaseJSON), nil
+	})}
+	dashboard.downloadHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp := testResponse(http.StatusOK, "application/x-7z-compressed", "payload")
+		resp.Header.Set("Content-Length", "7")
+		return resp, nil
+	})}
+
+	body := `{"name":"M7A","releaseUrl":"https://github.com/moesnow/March7thAssistant/releases","assetName":"update.7z"}`
+	createReq := authorizedRequest(http.MethodPost, "/api/release-sources", body)
+	createRec := httptest.NewRecorder()
+	dashboard.ReleaseSourcesHandler(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d", createRec.Code)
+	}
+
+	ticketReq := authorizedRequest(http.MethodPost, "/api/release-sources/1/download-ticket", "")
+	ticketRec := httptest.NewRecorder()
+	dashboard.ReleaseSourceHandler(ticketRec, ticketReq)
+	var ticketResult map[string]string
+	json.NewDecoder(ticketRec.Body).Decode(&ticketResult)
+
+	downloadURL := "/api/release-download?ticket=" + ticketResult["ticket"]
+
+	headRec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(headRec, httptest.NewRequest(http.MethodHead, downloadURL, nil))
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD status=%d", headRec.Code)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Fatal("HEAD must not return body")
+	}
+	if headRec.Header().Get("Content-Disposition") == "" {
+		t.Fatal("HEAD must return Content-Disposition")
+	}
+
+	getRec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(getRec, httptest.NewRequest(http.MethodGet, downloadURL, nil))
+	if getRec.Code != http.StatusOK || getRec.Body.String() != "payload" {
+		t.Fatalf("GET after HEAD status=%d body=%q", getRec.Code, getRec.Body.String())
+	}
+
+	replayRec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(replayRec, httptest.NewRequest(http.MethodGet, downloadURL, nil))
+	if replayRec.Code != http.StatusUnauthorized {
+		t.Fatalf("ticket was not consumed after GET, status=%d", replayRec.Code)
+	}
+}
+
 func TestReleaseDownloadClientTimeouts(t *testing.T) {
 	client := newReleaseDownloadClient()
 	if client.Timeout != 0 {
