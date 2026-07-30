@@ -127,8 +127,8 @@ func TestReleaseSourceCreateTicketAndDownload(t *testing.T) {
 
 	replayRec := httptest.NewRecorder()
 	dashboard.ReleaseDownloadHandler(replayRec, httptest.NewRequest(http.MethodGet, downloadURL, nil))
-	if replayRec.Code != http.StatusUnauthorized {
-		t.Fatalf("replayed ticket status=%d", replayRec.Code)
+	if replayRec.Code != http.StatusOK {
+		t.Fatalf("replayed ticket status=%d, expected reuse within TTL", replayRec.Code)
 	}
 }
 
@@ -244,8 +244,71 @@ func TestReleaseDownloadHeadDoesNotConsumeTicket(t *testing.T) {
 
 	replayRec := httptest.NewRecorder()
 	dashboard.ReleaseDownloadHandler(replayRec, httptest.NewRequest(http.MethodGet, downloadURL, nil))
-	if replayRec.Code != http.StatusUnauthorized {
-		t.Fatalf("ticket was not consumed after GET, status=%d", replayRec.Code)
+	if replayRec.Code != http.StatusOK {
+		t.Fatalf("ticket should be reusable within TTL, replay status=%d", replayRec.Code)
+	}
+}
+
+func TestReleaseDownloadRangeRequest(t *testing.T) {
+	dashboard := newReleaseTestDashboard(t)
+	calls := 0
+	dashboard.downloadHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.Header.Get("Range") != "" {
+			resp := testResponse(http.StatusPartialContent, "application/x-7z-compressed", "partial")
+			resp.Header.Set("Content-Length", "4")
+			resp.Header.Set("Content-Range", "bytes 0-3/7")
+			return resp, nil
+		}
+		resp := testResponse(http.StatusOK, "application/x-7z-compressed", "full")
+		resp.Header.Set("Content-Length", "7")
+		return resp, nil
+	})}
+	dashboard.downloadTickets["key"] = downloadTicket{
+		asset:     githubAsset{ID: 42, Name: "update.7z", Size: 7, ContentType: "application/x-7z-compressed"},
+		expiresAt: time.Now().Add(time.Minute),
+	}
+
+	rangeReq := httptest.NewRequest(http.MethodGet, "/api/release-download?ticket=key", nil)
+	rangeReq.Header.Set("Range", "bytes=0-3")
+	rangeRec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(rangeRec, rangeReq)
+	if rangeRec.Code != http.StatusPartialContent {
+		t.Fatalf("range status=%d", rangeRec.Code)
+	}
+	if rangeRec.Body.String() != "partial" {
+		t.Fatalf("range body=%q", rangeRec.Body.String())
+	}
+	if rangeRec.Header().Get("Content-Range") != "bytes 0-3/7" {
+		t.Fatalf("missing Content-Range")
+	}
+	if rangeRec.Header().Get("Accept-Ranges") != "bytes" {
+		t.Fatalf("missing Accept-Ranges")
+	}
+
+	fullReq := httptest.NewRequest(http.MethodGet, "/api/release-download?ticket=key", nil)
+	fullRec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(fullRec, fullReq)
+	if fullRec.Code != http.StatusOK || fullRec.Body.String() != "full" {
+		t.Fatalf("full download status=%d body=%q", fullRec.Code, fullRec.Body.String())
+	}
+}
+
+func TestReleaseDownloadTicketExpires(t *testing.T) {
+	dashboard := newReleaseTestDashboard(t)
+	dashboard.downloadHTTP = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp := testResponse(http.StatusOK, "application/x-7z-compressed", "data")
+		resp.Header.Set("Content-Length", "4")
+		return resp, nil
+	})}
+	dashboard.downloadTickets["key"] = downloadTicket{
+		asset:     githubAsset{ID: 42, Name: "update.7z", Size: 4, ContentType: "application/x-7z-compressed"},
+		expiresAt: time.Now().Add(-time.Minute),
+	}
+	rec := httptest.NewRecorder()
+	dashboard.ReleaseDownloadHandler(rec, httptest.NewRequest(http.MethodGet, "/api/release-download?ticket=key", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expired ticket status=%d", rec.Code)
 	}
 }
 

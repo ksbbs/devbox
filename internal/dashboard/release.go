@@ -301,9 +301,6 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 	ticketValue := r.URL.Query().Get("ticket")
 	d.ticketMu.Lock()
 	ticket, ok := d.downloadTickets[ticketValue]
-	if ok && r.Method != http.MethodHead {
-		delete(d.downloadTickets, ticketValue)
-	}
 	d.ticketMu.Unlock()
 	if !ok || time.Now().After(ticket.expiresAt) {
 		http.Error(w, "invalid or expired download ticket", http.StatusUnauthorized)
@@ -321,20 +318,32 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": ticket.asset.Name}))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Accept-Ranges", "bytes")
 
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	target := fmt.Sprintf("%s/repos/%s/%s/releases/assets/%d", githubAPIBase,
-		url.PathEscape(ticket.owner), url.PathEscape(ticket.repo), ticket.asset.ID)
+	target := ticket.asset.BrowserDownloadURL
+	if target == "" {
+		target = fmt.Sprintf("%s/repos/%s/%s/releases/assets/%d", githubAPIBase,
+			url.PathEscape(ticket.owner), url.PathEscape(ticket.repo), ticket.asset.ID)
+	}
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
 	if err != nil {
 		http.Error(w, "create upstream request failed", http.StatusInternalServerError)
 		return
 	}
-	upstreamReq.Header.Set("Accept", "application/octet-stream")
+	if target == ticket.asset.BrowserDownloadURL {
+		upstreamReq.Header.Set("User-Agent", "DevBox-Release-Downloader")
+	} else {
+		upstreamReq.Header.Set("Accept", "application/octet-stream")
+		setGitHubHeaders(upstreamReq)
+	}
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		upstreamReq.Header.Set("Range", rangeHeader)
+	}
 	setGitHubHeaders(upstreamReq)
 	resp, err := d.downloadHTTP.Do(upstreamReq)
 	if err != nil {
@@ -343,7 +352,7 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		slog.Warn("release download upstream status", "source_id", ticket.sourceID, "status", resp.StatusCode)
 		http.Error(w, "release download upstream returned "+resp.Status, http.StatusBadGateway)
 		return
@@ -357,10 +366,13 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
 		w.Header().Set("Content-Length", contentLength)
 	}
+	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
+		w.Header().Set("Content-Range", contentRange)
+	}
 	if etag := resp.Header.Get("ETag"); etag != "" {
 		w.Header().Set("ETag", etag)
 	}
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(resp.StatusCode)
 	if _, err := io.Copy(w, resp.Body); err != nil && !errors.Is(err, r.Context().Err()) {
 		slog.Warn("release download interrupted", "source_id", ticket.sourceID, "tag", ticket.tagName, "error", err)
 	}
