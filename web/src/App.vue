@@ -6,6 +6,7 @@ const navItems = [
   { to: '/mirrors', label: 'Mirrors', code: 'mir' },
   { to: '/gitproxy', label: 'Git Proxy', code: 'git' },
   { to: '/search', label: 'Search', code: 'find' },
+  { to: '/releases', label: 'Releases', code: 'rel' },
   { to: '/settings', label: 'Settings', code: 'cfg' },
 ]
 </script>

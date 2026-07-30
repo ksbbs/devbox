@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -14,7 +15,7 @@ type Store struct {
 }
 
 func New(path string) (*Store, error) {
-	if err := os.MkdirAll(path[:len(path)-len("/devbox.db")], 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 	// Enable WAL mode and busy timeout for better concurrency
@@ -48,11 +49,81 @@ func (s *Store) initSchema() error {
 		error_msg TEXT DEFAULT '',
 		checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE TABLE IF NOT EXISTS release_sources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		owner TEXT NOT NULL COLLATE NOCASE,
+		repo TEXT NOT NULL COLLATE NOCASE,
+		asset_name TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(owner, repo, asset_name)
+	);
 	CREATE INDEX IF NOT EXISTS idx_traffic_mirror ON traffic(mirror);
 	CREATE INDEX IF NOT EXISTS idx_traffic_created ON traffic(created_at);
 	`
 	_, err := s.db.Exec(schema)
 	return err
+}
+
+type ReleaseSource struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Owner     string `json:"owner"`
+	Repo      string `json:"repo"`
+	AssetName string `json:"assetName"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (s *Store) CreateReleaseSource(name, owner, repo, assetName string) (ReleaseSource, error) {
+	result, err := s.db.Exec(
+		"INSERT INTO release_sources (name, owner, repo, asset_name, created_at) VALUES (?, ?, ?, ?, ?)",
+		name, owner, repo, assetName, time.Now().UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return ReleaseSource{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return ReleaseSource{}, err
+	}
+	return s.GetReleaseSource(id)
+}
+
+func (s *Store) ListReleaseSources() ([]ReleaseSource, error) {
+	rows, err := s.db.Query(
+		"SELECT id, name, owner, repo, asset_name, created_at FROM release_sources ORDER BY id",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sources := make([]ReleaseSource, 0)
+	for rows.Next() {
+		var source ReleaseSource
+		if err := rows.Scan(&source.ID, &source.Name, &source.Owner, &source.Repo, &source.AssetName, &source.CreatedAt); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
+func (s *Store) GetReleaseSource(id int64) (ReleaseSource, error) {
+	var source ReleaseSource
+	err := s.db.QueryRow(
+		"SELECT id, name, owner, repo, asset_name, created_at FROM release_sources WHERE id = ?", id,
+	).Scan(&source.ID, &source.Name, &source.Owner, &source.Repo, &source.AssetName, &source.CreatedAt)
+	return source, err
+}
+
+func (s *Store) DeleteReleaseSource(id int64) (bool, error) {
+	result, err := s.db.Exec("DELETE FROM release_sources WHERE id = ?", id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count > 0, err
 }
 
 func (s *Store) RecordTraffic(mirror, method, path string, bytesIn, bytesOut, status int) error {

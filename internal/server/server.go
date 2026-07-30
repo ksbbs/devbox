@@ -166,6 +166,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 	mux.HandleFunc("/api/auth/check", s.dash.AuthCheckHandler)
 	mux.HandleFunc("/api/search", s.search.Search)
+	mux.HandleFunc("/api/release-sources", s.dash.ReleaseSourcesHandler)
+	mux.HandleFunc("/api/release-sources/", s.dash.ReleaseSourceHandler)
+	mux.HandleFunc("/api/release-download", s.dash.ReleaseDownloadHandler)
 
 	// Docker v2 registry API — proxy handles auth transparently
 	mux.HandleFunc("/v2/", s.wrapWithDynamicStats(registryStatsName, s.registryV2Handler))
@@ -413,10 +416,10 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			w.Header().Set("Www-Authenticate", wwAuth)
 		}
 		w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-	w.WriteHeader(401)
-	_, _ = io.Copy(w, resp.Body)
-	return
-}
+		w.WriteHeader(401)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
 
 	// Copy response headers
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
