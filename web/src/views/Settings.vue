@@ -58,6 +58,7 @@ const capabilities = [
   'Mirror Search',
   'IP Rate Limiting',
   'HuggingFace Proxy',
+  'Release Downloads',
 ]
 </script>
 

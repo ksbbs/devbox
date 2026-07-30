@@ -120,3 +120,53 @@ export async function updateRateLimitConfig(config: {
 }) {
   return api.put("/config/ratelimit", config).then((r) => r.data);
 }
+
+export interface ReleaseSource {
+  id: number;
+  name: string;
+  owner: string;
+  repo: string;
+  assetName: string;
+  createdAt: string;
+  repositoryUrl: string;
+  tagName?: string;
+  releaseUrl?: string;
+  publishedAt?: string;
+  assetSize?: number;
+  digest?: string;
+  available: boolean;
+  error?: string;
+}
+
+export async function getReleaseSources(
+  refresh = false,
+): Promise<ReleaseSource[]> {
+  return api
+    .get("/release-sources", { params: refresh ? { refresh: "1" } : undefined })
+    .then((r) => r.data);
+}
+
+export async function createReleaseSource(source: {
+  name: string;
+  releaseUrl: string;
+  assetName: string;
+}): Promise<ReleaseSource> {
+  return api.post("/release-sources", source).then((r) => r.data);
+}
+
+export async function deleteReleaseSource(id: number) {
+  return api.delete(`/release-sources/${id}`).then((r) => r.data);
+}
+
+export async function createReleaseDownloadTicket(id: number): Promise<{
+  ticket: string;
+  fileName: string;
+  tagName: string;
+}> {
+  return api.post(`/release-sources/${id}/download-ticket`).then((r) => r.data);
+}
+
+export function getReleaseDownloadUrl(ticket: string): string {
+  const base = import.meta.env.VITE_API_BASE_URL || "/api";
+  return `${base.replace(/\/$/, "")}/release-download?ticket=${encodeURIComponent(ticket)}`;
+}

@@ -16,12 +16,18 @@ import (
 )
 
 type Dashboard struct {
-	store       *store.Store
-	authToken   string
-	publicURL   string
-	rlConfig    RateLimitConfigAccessor
-	saveConfig  func() error
-	alertEngine *alert.Engine
+	store           *store.Store
+	authToken       string
+	publicURL       string
+	rlConfig        RateLimitConfigAccessor
+	saveConfig      func() error
+	alertEngine     *alert.Engine
+	releaseHTTP     *http.Client
+	downloadHTTP    *http.Client
+	releaseCacheMu  sync.Mutex
+	releaseCache    map[string]cachedRelease
+	ticketMu        sync.Mutex
+	downloadTickets map[string]downloadTicket
 
 	healthMu    sync.RWMutex
 	healthCache map[string]cachedHealth
@@ -60,10 +66,14 @@ type cachedHealth struct {
 
 func New(st *store.Store, authToken string, publicURL string) *Dashboard {
 	d := &Dashboard{
-		store:       st,
-		authToken:   authToken,
-		publicURL:   publicURL,
-		healthCache: make(map[string]cachedHealth),
+		store:           st,
+		authToken:       authToken,
+		publicURL:       publicURL,
+		healthCache:     make(map[string]cachedHealth),
+		releaseHTTP:     &http.Client{Timeout: 15 * time.Second},
+		downloadHTTP:    newReleaseDownloadClient(),
+		releaseCache:    make(map[string]cachedRelease),
+		downloadTickets: make(map[string]downloadTicket),
 	}
 	go d.backgroundHealthCheck()
 	return d

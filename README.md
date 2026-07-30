@@ -26,6 +26,7 @@
 | HuggingFace 加速 | 代理 `https://huggingface.co` 模型文件下载 |
 | Git Clone 加速 | 代理 GitHub / GitLab 的 clone、archive、raw 请求 |
 | GitHub API 加速 | 代理 `https://api.github.com`（解决国内 GitHub API 超时） |
+| GitHub Release 下载 | 在面板持久化 Release 源，通过 DevBox 中转下载最新稳定版本中的指定资产 |
 | Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
 | 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI、Conda、RubyGems、Cargo、NuGet 包 |
 | IP 限流 | 滚动时间窗口限流防滥用，白名单免限速，黑名单直接拒绝 |
@@ -375,7 +376,18 @@ Dashboard 采用极客轻量控制台风格，面向开发者高效扫读：
 - Mirrors：镜像启停、上游地址修改、缓存 TTL 查看
 - Git Proxy：GitHub / GitLab clone、archive、raw 命令生成与复制
 - Search：npm、Docker Hub、PyPI 搜索与安装命令复制
+- Releases：保存 GitHub Releases 地址与固定资产名，一键通过 DevBox 下载最新稳定版本中的资产
 - Settings：版本/运行信息、IP 限流白名单/黑名单配置
+
+### GitHub Release 下载
+
+在 `Releases` 页面添加下载源，需要填写：
+
+- 名称，例如 `March7thAssistant`
+- GitHub Releases 地址，例如 `https://github.com/moesnow/March7thAssistant/releases`
+- 最新稳定版本中固定的资产文件名，例如 `update.7z`
+
+保存时 DevBox 会校验仓库与资产是否存在，之后点击 `download` 会重新确认最新稳定版本并把资产流式中转给浏览器。源保存在 `/data` 的 SQLite 数据库中，重启后仍然保留；当前仅支持公开仓库。
 
 ## 本地开发
 
@@ -392,7 +404,7 @@ docker build -t devbox:latest .
 
 ## 数据持久化
 
-容器 `/data` 目录存储 SQLite 数据库和缓存文件，建议映射到 Docker volume：
+容器 `/data` 目录存储 SQLite 数据库（含 Release 下载源）和缓存文件，建议映射到 Docker volume：
 
 ```bash
 docker run -d -p 8080:8080 -v devbox-data:/data devbox:latest
