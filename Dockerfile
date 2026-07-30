@@ -1,12 +1,13 @@
-# Stage 1: Build frontend (amd64 only, avoid slow QEMU emulation for npm)
-FROM --platform=linux/amd64 node:20-alpine AS frontend
+# Stage 1: Build frontend
+FROM node:20-alpine AS frontend
+RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app/web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
+COPY web/pnpm-lock.yaml web/package.json ./
+RUN pnpm install --frozen-lockfile
 COPY web/ .
-RUN npm run build
+RUN pnpm run build
 
-# Stage 2: Build Go binary per-platform (pure Go cross-compile is fast)
+# Stage 2: Build Go binary (CGO_ENABLED=0 cross-compile to Linux)
 FROM golang:1.25-alpine AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -14,8 +15,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o devbox ./cmd/devbox/
 
-# Stage 3: Final image
-FROM alpine:3.20
+# Stage 3: Minimal runtime image
+FROM alpine:3.21
 RUN apk add --no-cache ca-certificates git curl
 COPY --from=backend /app/devbox /usr/local/bin/devbox
 COPY --from=frontend /app/web/dist /usr/share/devbox/frontend
