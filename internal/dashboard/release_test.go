@@ -163,6 +163,9 @@ func TestLatestReleaseAssetRefreshesWhenCachedAssetMissing(t *testing.T) {
 	if _, _, err := dashboard.latestReleaseAsset(req, "moesnow", "March7thAssistant", "missing.7z"); !errors.Is(err, errAssetNotFound) {
 		t.Fatalf("expected errAssetNotFound, got %v", err)
 	}
+	if calls != 2 {
+		t.Fatalf("expected missing-asset path to refresh metadata before returning errAssetNotFound, GitHub calls=%d", calls)
+	}
 }
 
 func TestLatestReleaseAssetRefreshesExpiredCache(t *testing.T) {
