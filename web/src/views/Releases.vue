@@ -66,12 +66,7 @@ async function download(source: ReleaseSource) {
   statusMsg.value = ''
   try {
     const result = await createReleaseDownloadTicket(source.id)
-    const link = document.createElement('a')
-    link.href = getReleaseDownloadUrl(result.ticket)
-    link.download = result.fileName
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
+    window.location.href = getReleaseDownloadUrl(result.ticket)
     flashStatus(`${source.name} ${result.tagName} 已开始下载`)
   } catch (e: any) {
     errorMsg.value = responseMessage(e, '准备下载失败')
