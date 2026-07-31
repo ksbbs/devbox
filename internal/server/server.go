@@ -821,7 +821,10 @@ func (s *Server) GetCacheTTL() string {
 }
 
 func (s *Server) SetCacheTTL(ttl string) error {
-	return s.gitProxy.SetCacheTTL(ttl)
+	s.cfgMu.RLock()
+	gp := s.gitProxy
+	s.cfgMu.RUnlock()
+	return gp.SetCacheTTL(ttl)
 }
 
 func (s *Server) rebuildLimiter() {

@@ -296,15 +296,19 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Stat before the atomic rename: after it, path already points at the new
+	// file whose size equals written, which would cancel out the accounting
+	// below and keep usedBytes from ever growing past maxBytes.
+	oldSize := int64(0)
+	if info, err := os.Stat(path); err == nil {
+		oldSize = info.Size()
+	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		slog.Warn("cache rename error", "path", path, "error", err)
 		return
 	}
-	if info, err := os.Stat(path); err == nil {
-		c.usedBytes -= info.Size()
-	}
 	c.writeCacheMeta(path, respHdr, ttl)
-	c.usedBytes += written
+	c.usedBytes += written - oldSize
 	if c.maxBytes > 0 && c.usedBytes > c.maxBytes {
 		c.evictLRU()
 	}

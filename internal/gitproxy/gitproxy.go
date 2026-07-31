@@ -142,7 +142,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 		}
 		orig := r.URL.Path
 		r.URL.Path = path
-		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
+		gp.cache.ProxyHTTP(w, r, upstream, cacheTTL)
 		r.URL.Path = orig
 		return
 	}
