@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { getPublicConfig } from '../api/client'
+import CodeBlock from '../components/CodeBlock.vue'
 
 const publicUrl = ref('')
-const copied = ref<number | null>(null)
 
 onMounted(async () => {
   try {
@@ -16,63 +16,54 @@ onMounted(async () => {
 
 const commands = computed(() => [
   {
-    title: 'GitHub Clone',
+    title: 'GitHub 克隆',
     path: '/gh/user/repo',
     desc: '克隆 GitHub 仓库',
     cmd: `git clone ${publicUrl.value}/gh/user/repo`,
   },
   {
-    title: 'GitLab Clone',
+    title: 'GitLab 克隆',
     path: '/gl/user/repo',
     desc: '克隆 GitLab 仓库',
     cmd: `git clone ${publicUrl.value}/gl/user/repo`,
   },
   {
-    title: 'Archive',
+    title: '压缩包下载',
     path: '/gh/user/repo/archive/main.zip',
     desc: '下载仓库压缩包',
     cmd: `curl ${publicUrl.value}/gh/user/repo/archive/main.zip -o main.zip`,
   },
   {
-    title: 'Raw File',
+    title: '原始文件',
     path: '/gh/user/repo/raw/branch/file.txt',
     desc: '获取原始文件内容',
     cmd: `curl ${publicUrl.value}/gh/user/repo/raw/branch/file.txt`,
   },
 ])
-
-function copyCmd(index: number, cmd: string) {
-  navigator.clipboard.writeText(cmd)
-  copied.value = index
-  setTimeout(() => copied.value = null, 1500)
-}
 </script>
 
 <template>
   <div>
     <section class="page-header">
-      <span class="page-kicker">proxy</span>
+      <span class="page-kicker">代理</span>
       <div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 class="page-title">Git Proxy</h1>
-          <p class="page-subtitle">GitHub / GitLab clone、archive、raw 请求加速命令。</p>
+          <h1 class="page-title">Git 代理</h1>
+          <p class="page-subtitle">GitHub / GitLab 克隆、压缩包、原始文件请求加速命令。</p>
         </div>
-        <code class="code-line w-fit max-w-full truncate">{{ publicUrl || 'resolving origin...' }}</code>
+        <code class="code-line w-fit max-w-full truncate">{{ publicUrl || '解析服务地址中...' }}</code>
       </div>
     </section>
 
-    <div class="grid gap-3">
-      <article v-for="(item, i) in commands" :key="item.title" class="panel-pad">
-        <div class="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-center">
-          <div>
+    <div class="grid grid-cols-1 gap-3">
+      <article v-for="item in commands" :key="item.title" class="glass glass-hover min-w-0 p-4">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-[180px_minmax(0,1fr)] lg:items-center">
+          <div class="min-w-0">
             <h2 class="text-sm font-semibold text-slate-100">{{ item.title }}</h2>
             <p class="mt-1 text-xs text-slate-500">{{ item.desc }}</p>
             <code class="mt-2 block text-xs text-slate-600">{{ item.path }}</code>
           </div>
-          <code class="code-line block overflow-x-auto whitespace-nowrap">{{ item.cmd }}</code>
-          <button class="btn btn-primary" @click="copyCmd(i, item.cmd)">
-            {{ copied === i ? 'copied' : 'copy' }}
-          </button>
+          <CodeBlock :code="item.cmd" />
         </div>
       </article>
     </div>

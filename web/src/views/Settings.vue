@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getPublicConfig, getRateLimitConfig, updateRateLimitConfig } from '../api/client'
+import Panel from '../components/Panel.vue'
+import Banner from '../components/Banner.vue'
+import StatusDot from '../components/StatusDot.vue'
 
 const publicUrl = ref('')
 const rlEnabled = ref(false)
@@ -44,113 +47,117 @@ async function saveRateLimit() {
     rlMsg.value = 'saved'
     setTimeout(() => rlMsg.value = '', 1500)
   } catch (e: any) {
-    rlMsg.value = e.response?.statusText || 'save failed'
+    rlMsg.value = e.response?.statusText || '保存失败'
   }
   rlSaving.value = false
 }
 
 const capabilities = [
-  'Traffic Analytics',
-  'GitHub API Proxy',
-  'Web UI Auth',
-  'Log Auto Cleanup',
-  'Docker Registry Auth',
-  'Mirror Search',
-  'IP Rate Limiting',
-  'HuggingFace Proxy',
-  'Release Downloads',
+  '流量分析',
+  'GitHub API 代理',
+  'Web 界面鉴权',
+  '日志自动清理',
+  'Docker 仓库鉴权',
+  '镜像搜索',
+  'IP 限流',
+  'HuggingFace 代理',
+  '发行版下载',
 ]
 </script>
 
 <template>
   <div>
     <section class="page-header">
-      <span class="page-kicker">system</span>
-      <h1 class="page-title">Settings</h1>
+      <span class="page-kicker">系统</span>
+      <h1 class="page-title">设置</h1>
       <p class="page-subtitle">运行信息与访问治理配置。</p>
     </section>
 
-    <div v-if="loading" class="panel-pad text-sm text-cyan-400">loading settings...</div>
-
-    <div v-if="rlLoadError" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
-      {{ rlLoadError }}
+    <div v-if="loading" class="glass flex items-center gap-2 p-4 text-sm text-cyan-400">
+      <StatusDot tone="accent" pulse /> 正在加载设置...
     </div>
 
-    <div v-if="!loading" class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-      <section class="panel-pad">
-        <div class="mb-4 flex items-center justify-between gap-3 border-b border-slate-900 pb-3">
-          <div>
-            <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">rate limit</h2>
-            <p class="mt-1 text-xs text-slate-600">滚动时间窗口限流，白名单绕过，黑名单直接拒绝。</p>
-          </div>
+    <Banner v-if="rlLoadError" :message="rlLoadError" />
+
+    <div v-if="!loading" class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <Panel>
+        <template #title>限流配置</template>
+        <template #desc>滚动时间窗口限流，白名单绕过，黑名单直接拒绝。</template>
+        <template #action>
           <button class="btn" :class="rlEnabled ? 'btn-primary' : ''" @click="rlEnabled = !rlEnabled">
-            {{ rlEnabled ? 'enabled' : 'disabled' }}
+            <StatusDot :tone="rlEnabled ? 'ok' : 'off'" :pulse="rlEnabled" />
+            {{ rlEnabled ? '已启用' : '已停用' }}
           </button>
-        </div>
+        </template>
 
         <div class="grid gap-4">
           <label class="grid gap-1">
-            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">max requests per rolling window</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">每个时间窗口最大请求数</span>
             <input v-model.number="rlRate" type="number" min="1" class="input w-full" />
           </label>
           <label class="grid gap-1">
-            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">rolling window</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">时间窗口</span>
             <input v-model="rlInterval" type="text" class="input w-full" placeholder="3h, 30m, 1d" />
           </label>
           <label class="grid gap-1">
-            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">whitelist</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">白名单</span>
             <input v-model="rlWhitelist" type="text" class="input w-full" placeholder="10.0.0.1, 192.168.1.0/24" />
           </label>
           <label class="grid gap-1">
-            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">blacklist</span>
+            <span class="text-xs uppercase tracking-[0.16em] text-slate-500">黑名单</span>
             <input v-model="rlBlacklist" type="text" class="input w-full" placeholder="1.2.3.4" />
           </label>
           <div class="flex items-center gap-3">
             <button class="btn btn-primary" :disabled="rlSaving" @click="saveRateLimit">
-              {{ rlSaving ? 'saving' : 'save config' }}
+              {{ rlSaving ? '保存中' : '保存配置' }}
             </button>
-            <span v-if="rlMsg" class="text-xs" :class="rlMsg === 'saved' ? 'text-emerald-300' : 'text-red-300'">{{ rlMsg }}</span>
+            <span v-if="rlMsg" class="text-xs" :class="rlMsg === 'saved' ? 'text-emerald-300' : 'text-red-300'">{{ rlMsg === 'saved' ? '已保存' : rlMsg }}</span>
           </div>
         </div>
-      </section>
+      </Panel>
 
       <aside class="grid gap-5">
-        <section class="panel-pad">
-          <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">runtime</h2>
-          <dl class="mt-4 space-y-3 text-sm">
-            <div class="flex justify-between gap-4 border-b border-slate-900 pb-2">
-              <dt class="text-slate-500">app</dt>
+        <Panel>
+          <template #title>运行信息</template>
+          <dl class="space-y-3 text-sm">
+            <div class="flex justify-between gap-4 border-b border-slate-800/70 pb-2">
+              <dt class="text-slate-500">应用</dt>
               <dd class="text-slate-100">DevBox</dd>
             </div>
-            <div class="flex justify-between gap-4 border-b border-slate-900 pb-2">
-              <dt class="text-slate-500">version</dt>
+            <div class="flex justify-between gap-4 border-b border-slate-800/70 pb-2">
+              <dt class="text-slate-500">版本</dt>
               <dd class="text-slate-100">v1.1.0</dd>
             </div>
-            <div class="flex justify-between gap-4 border-b border-slate-900 pb-2">
-              <dt class="text-slate-500">backend</dt>
+            <div class="flex justify-between gap-4 border-b border-slate-800/70 pb-2">
+              <dt class="text-slate-500">后端</dt>
               <dd class="text-slate-300">Go + SQLite</dd>
             </div>
-            <div class="flex justify-between gap-4 border-b border-slate-900 pb-2">
-              <dt class="text-slate-500">frontend</dt>
+            <div class="flex justify-between gap-4 border-b border-slate-800/70 pb-2">
+              <dt class="text-slate-500">前端</dt>
               <dd class="text-slate-300">Vue 3 + TailwindCSS</dd>
             </div>
-            <div v-if="publicUrl" class="grid gap-1 border-b border-slate-900 pb-2">
-              <dt class="text-slate-500">public url</dt>
+            <div v-if="publicUrl" class="grid gap-1 border-b border-slate-800/70 pb-2">
+              <dt class="text-slate-500">公网地址</dt>
               <dd class="truncate text-cyan-300">{{ publicUrl }}</dd>
             </div>
             <div class="flex justify-between gap-4">
-              <dt class="text-slate-500">source</dt>
+              <dt class="text-slate-500">源码</dt>
               <dd><a href="https://github.com/wha7ev9r/devbox" target="_blank" class="muted-link">github</a></dd>
             </div>
           </dl>
-        </section>
+        </Panel>
 
-        <section class="panel-pad">
-          <h2 class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">capabilities</h2>
-          <div class="mt-4 flex flex-wrap gap-2">
-            <span v-for="item in capabilities" :key="item" class="tag tag-ok">{{ item }}</span>
+        <Panel>
+          <template #title>功能特性</template>
+          <div class="flex flex-wrap gap-2">
+            <span v-for="item in capabilities" :key="item" class="tag tag-ok">
+              <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="2 6.2 4.5 8.5 10 3.5" />
+              </svg>
+              {{ item }}
+            </span>
           </div>
-        </section>
+        </Panel>
       </aside>
     </div>
   </div>
