@@ -209,7 +209,11 @@ async function switchGranularity(level: 'hourly' | 'daily' | 'weekly') {
 }
 
 async function refreshLogs() {
-  logs.value = await getRecentLogs(50)
+  try {
+    logs.value = await getRecentLogs(50)
+  } catch (e: any) {
+    errorMsg.value = e.response?.statusText || '日志加载失败'
+  }
 }
 
 function formatBytes(b: number) {

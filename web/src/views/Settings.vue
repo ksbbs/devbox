@@ -37,6 +37,17 @@ onMounted(async () => {
 async function saveRateLimit() {
   rlSaving.value = true
   rlMsg.value = ''
+  // 与后端校验保持一致：rate 必须为正、interval 必须可解析
+  if (!Number.isInteger(rlRate.value) || rlRate.value <= 0) {
+    rlMsg.value = '最大请求数必须为正整数'
+    rlSaving.value = false
+    return
+  }
+  if (!/^\d+(ms|s|m|h|d)$/.test(rlInterval.value.trim())) {
+    rlMsg.value = '时间窗口格式无效（如 3h、30m、1d）'
+    rlSaving.value = false
+    return
+  }
   try {
     const wl = rlWhitelist.value.split(',').map(s => s.trim()).filter(Boolean)
     const bl = rlBlacklist.value.split(',').map(s => s.trim()).filter(Boolean)

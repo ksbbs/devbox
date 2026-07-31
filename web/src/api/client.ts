@@ -14,7 +14,9 @@ api.interceptors.response.use(
       localStorage.removeItem("devbox_token");
       setToken("");
       if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+        window.location.href =
+          "/login?redirect=" +
+          encodeURIComponent(window.location.pathname + window.location.search);
       }
     }
     return Promise.reject(error);
@@ -95,6 +97,14 @@ export async function updateMirrorConfig(
 
 export async function getPublicConfig() {
   return api.get("/config/public").then((r) => r.data);
+}
+
+export async function getGitProxyConfig() {
+  return api.get("/config/gitproxy").then((r) => r.data);
+}
+
+export async function updateGitProxyConfig(cacheTTL: string) {
+  return api.put("/config/gitproxy", { cacheTTL }).then((r) => r.data);
 }
 
 export async function searchMirrors(

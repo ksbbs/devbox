@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"devbox/internal/alert"
+	"devbox/internal/config"
 	"devbox/internal/mirror"
 	"devbox/internal/store"
 )
@@ -20,6 +21,7 @@ type Dashboard struct {
 	authToken       string
 	publicURL       string
 	rlConfig        RateLimitConfigAccessor
+	gitProxyConfig  GitProxyConfigAccessor
 	saveConfig      func() error
 	alertEngine     *alert.Engine
 	releaseHTTP     *http.Client
@@ -49,6 +51,11 @@ type RateLimitConfigAccessor interface {
 	SetRateLimitInterval(interval string)
 	SetRateLimitWhitelist(list []string)
 	SetRateLimitBlacklist(list []string)
+}
+
+type GitProxyConfigAccessor interface {
+	GetCacheTTL() string
+	SetCacheTTL(ttl string) error
 }
 
 type RateLimitConfigView struct {
@@ -81,6 +88,10 @@ func New(st *store.Store, authToken string, publicURL string) *Dashboard {
 
 func (d *Dashboard) SetRateLimitConfigAccessor(rl RateLimitConfigAccessor) {
 	d.rlConfig = rl
+}
+
+func (d *Dashboard) SetGitProxyConfigAccessor(gp GitProxyConfigAccessor) {
+	d.gitProxyConfig = gp
 }
 
 func (d *Dashboard) GetRateLimitConfig() RateLimitConfigView {
@@ -364,7 +375,7 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 		if d.saveConfig != nil {
 			if err := d.saveConfig(); err != nil {
 				slog.Error("failed to persist config", "error", err)
-				writeJSON(w, map[string]string{"status": "persist_failed", "error": err.Error()})
+				http.Error(w, "persist_failed", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -442,6 +453,16 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
+		// Validate before mutating anything: a bad interval or rate must
+		// not silently keep the old values while reporting success.
+		if _, err := config.ParseDuration(req.Interval); err != nil {
+			http.Error(w, "invalid interval", http.StatusBadRequest)
+			return
+		}
+		if req.Rate <= 0 {
+			http.Error(w, "rate must be positive", http.StatusBadRequest)
+			return
+		}
 		d.rlConfig.SetRateLimitEnabled(req.Enabled)
 		d.rlConfig.SetRateLimitRate(req.Rate)
 		d.rlConfig.SetRateLimitInterval(req.Interval)
@@ -461,11 +482,55 @@ func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Reques
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
+func (d *Dashboard) GitProxyConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if !d.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if d.gitProxyConfig == nil {
+		http.Error(w, "git proxy not available", http.StatusNotFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]string{"cacheTTL": d.gitProxyConfig.GetCacheTTL()})
+		return
+	}
+
+	if r.Method == http.MethodPut {
+		var req struct {
+			CacheTTL string `json:"cacheTTL"`
+		}
+		if !readJSON(r, &req) {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := d.gitProxyConfig.SetCacheTTL(req.CacheTTL); err != nil {
+			http.Error(w, "invalid cacheTTL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if d.saveConfig != nil {
+			if err := d.saveConfig(); err != nil {
+				slog.Error("failed to persist git proxy config", "error", err)
+				http.Error(w, "persist_failed", http.StatusInternalServerError)
+				return
+			}
+		}
+		writeJSON(w, map[string]string{"cacheTTL": d.gitProxyConfig.GetCacheTTL()})
+		return
+	}
+
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
 func (d *Dashboard) checkAuth(r *http.Request) bool {
 	if d.authToken == "" {
 		return true // no auth required
 	}
 	token := r.Header.Get("Authorization")
-	token = strings.TrimPrefix(token, "Bearer ")
+	if len(token) > 7 && strings.EqualFold(token[:7], "Bearer ") {
+		token = token[7:]
+	}
 	return subtle.ConstantTimeCompare([]byte(token), []byte(d.authToken)) == 1
 }

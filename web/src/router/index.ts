@@ -39,7 +39,8 @@ router.beforeEach(async (to) => {
   const required = await checkAuthRequired()
   if (!required) return true
 
-  return '/login'
+  // Remember where the user was headed so the login page can bounce back.
+  return { path: '/login', query: { redirect: to.fullPath } }
 })
 
 export default router

@@ -15,7 +15,9 @@ async function submit() {
   error.value = ''
   try {
     await login(password.value)
-    window.location.href = '/'
+    // Only allow relative-path redirects to avoid open-redirect abuse.
+    const redirect = new URLSearchParams(window.location.search).get('redirect')
+    window.location.href = redirect && redirect.startsWith('/') ? redirect : '/'
   } catch {
     error.value = '认证被拒绝，请检查 AUTH_TOKEN'
   }
