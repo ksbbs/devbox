@@ -57,7 +57,10 @@ func (q *QuayMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (q *QuayMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -73,6 +76,7 @@ func (q *QuayMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		q.mu.RLock()
 		upstream := q.upstream
 		q.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/quay")
 		cache.ProxyStream(w, r, upstream)
 	}

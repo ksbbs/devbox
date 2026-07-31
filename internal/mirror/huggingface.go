@@ -57,7 +57,10 @@ func (h *HfMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (h *HfMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -73,6 +76,7 @@ func (h *HfMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		h.mu.RLock()
 		upstream := h.upstream
 		h.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/hf")
 		// HuggingFace files can be large (model weights), use streaming proxy
 		cache.ProxyStream(w, r, upstream)

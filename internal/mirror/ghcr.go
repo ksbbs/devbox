@@ -57,7 +57,10 @@ func (g *GhcrMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (g *GhcrMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -73,6 +76,7 @@ func (g *GhcrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		g.mu.RLock()
 		upstream := g.upstream
 		g.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/ghcr")
 		cache.ProxyStream(w, r, upstream)
 	}

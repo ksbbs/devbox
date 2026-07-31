@@ -57,7 +57,10 @@ func (c *CondaMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (c *CondaMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -74,6 +77,7 @@ func (c *CondaMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := c.upstream
 		cacheTTL := c.cacheTTL
 		c.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/conda")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

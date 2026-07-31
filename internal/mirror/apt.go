@@ -57,7 +57,10 @@ func (a *AptMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (a *AptMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -73,6 +76,7 @@ func (a *AptMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		a.mu.RLock()
 		upstream := a.upstream
 		a.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/apt")
 		cache.ProxyStream(w, r, upstream)
 	}
