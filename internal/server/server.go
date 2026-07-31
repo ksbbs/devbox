@@ -119,7 +119,7 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 
 	var limiter *ratelimit.Limiter
 	if cfg.RateLimit.Enabled {
-		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist)
+		limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist, cfg.RateLimit.TrustedProxies)
 	}
 
 	s := &Server{
@@ -675,7 +675,7 @@ func (s *Server) applyRuntimeConfig(cfg *config.Config) {
 	// Rebuild rate limiter
 	s.limiterMu.Lock()
 	if cfg.RateLimit.Enabled {
-		s.limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist)
+		s.limiter = ratelimit.New(cfg.RateLimit.Rate, cfg.RateLimit.IntervalDur, cfg.RateLimit.Whitelist, cfg.RateLimit.Blacklist, cfg.RateLimit.TrustedProxies)
 	} else {
 		s.limiter = nil
 	}
@@ -787,7 +787,7 @@ func (s *Server) rebuildLimiter() {
 		s.limiter = nil
 		return
 	}
-	s.limiter = ratelimit.New(rl.Rate, rl.IntervalDur, rl.Whitelist, rl.Blacklist)
+	s.limiter = ratelimit.New(rl.Rate, rl.IntervalDur, rl.Whitelist, rl.Blacklist, rl.TrustedProxies)
 }
 
 func (s *Server) serverConfigSnapshot() (int, bool) {

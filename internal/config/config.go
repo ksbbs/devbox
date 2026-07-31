@@ -64,12 +64,13 @@ type LoggingConfig struct {
 }
 
 type RateLimitConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	Rate        int           `yaml:"rate"`      // max requests per rolling window
-	Interval    string        `yaml:"interval"`  // rolling window length, e.g. "3h"
-	IntervalDur time.Duration `yaml:"-"`         // parsed
-	Whitelist   []string      `yaml:"whitelist"` // IPs exempt from rate limiting
-	Blacklist   []string      `yaml:"blacklist"` // IPs always blocked
+	Enabled        bool          `yaml:"enabled"`
+	Rate           int           `yaml:"rate"`            // max requests per rolling window
+	Interval       string        `yaml:"interval"`        // rolling window length, e.g. "3h"
+	IntervalDur    time.Duration `yaml:"-"`               // parsed
+	Whitelist      []string      `yaml:"whitelist"`       // IPs exempt from rate limiting
+	Blacklist      []string      `yaml:"blacklist"`       // IPs always blocked
+	TrustedProxies []string      `yaml:"trusted_proxies"` // CIDRs whose X-Real-IP / X-Forwarded-For are trusted
 }
 
 func (cfg *Config) Save(path string) error {
@@ -132,6 +133,11 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.RateLimit.Rate == 0 {
 		cfg.RateLimit.Rate = 500
+	}
+	if len(cfg.RateLimit.TrustedProxies) == 0 {
+		// Loopback only by default: proxy headers are trusted solely from a
+		// reverse proxy running on the same host (e.g. nginx + 127.0.0.1 bind).
+		cfg.RateLimit.TrustedProxies = []string{"127.0.0.1/8", "::1/128"}
 	}
 
 	defaultMirrors := map[string]MirrorConfig{
@@ -204,6 +210,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("DEVBOX_RATE_LIMIT_INTERVAL"); v != "" {
 		cfg.RateLimit.Interval = v
+	}
+	if v := os.Getenv("DEVBOX_RATE_LIMIT_TRUSTED_PROXIES"); v != "" {
+		cfg.RateLimit.TrustedProxies = strings.Split(v, ",")
 	}
 
 	for name := range cfg.Mirrors {

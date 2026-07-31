@@ -9,12 +9,13 @@ import (
 )
 
 type Limiter struct {
-	mu        sync.Mutex
-	visitors  map[string]*visitorWindow
-	limit     int
-	window    time.Duration
-	whitelist []*net.IPNet
-	blacklist []*net.IPNet
+	mu             sync.Mutex
+	visitors       map[string]*visitorWindow
+	limit          int
+	window         time.Duration
+	whitelist      []*net.IPNet
+	blacklist      []*net.IPNet
+	trustedProxies []*net.IPNet
 }
 
 type visitorWindow struct {
@@ -22,21 +23,27 @@ type visitorWindow struct {
 	lastSeen time.Time
 }
 
-func New(limit int, window time.Duration, whitelist []string, blacklist []string) *Limiter {
+func New(limit int, window time.Duration, whitelist []string, blacklist []string, trustedProxies []string) *Limiter {
 	wlNets := parseCIDRList(whitelist)
 	blNets := parseCIDRList(blacklist)
+	if len(trustedProxies) == 0 {
+		// Default: trust proxy headers only from a loopback reverse proxy.
+		trustedProxies = []string{"127.0.0.1/8", "::1/128"}
+	}
+	tpNets := parseCIDRList(trustedProxies)
 
 	return &Limiter{
-		visitors:  make(map[string]*visitorWindow),
-		limit:     limit,
-		window:    window,
-		whitelist: wlNets,
-		blacklist: blNets,
+		visitors:       make(map[string]*visitorWindow),
+		limit:          limit,
+		window:         window,
+		whitelist:      wlNets,
+		blacklist:      blNets,
+		trustedProxies: tpNets,
 	}
 }
 
 func (l *Limiter) Allow(r *http.Request) bool {
-	ip := extractIP(r)
+	ip := l.extractIP(r)
 	ipNet := parseIP(ip)
 
 	for _, cidr := range l.blacklist {
@@ -117,13 +124,14 @@ func parseIP(ipStr string) net.IP {
 	return ip
 }
 
-func extractIP(r *http.Request) string {
-	// Only trust proxy headers (X-Real-IP / X-Forwarded-For) when the direct
-	// peer is a loopback address, i.e. traffic arrives via a local reverse
-	// proxy. Directly exposed clients can otherwise forge these headers to
-	// bypass or deflect rate limiting.
+// extractIP resolves the client IP for rate limiting. Proxy headers
+// (X-Real-IP / X-Forwarded-For) are only honored when the direct peer is
+// inside the configured trusted proxy CIDRs (loopback by default); directly
+// exposed clients can otherwise forge these headers to bypass or deflect
+// rate limiting.
+func (l *Limiter) extractIP(r *http.Request) string {
 	remoteIP := peerIP(r.RemoteAddr)
-	if remoteIP != nil && remoteIP.IsLoopback() {
+	if remoteIP != nil && l.isTrustedProxy(remoteIP) {
 		if ip := r.Header.Get("X-Real-IP"); ip != "" {
 			return strings.TrimSpace(ip)
 		}
@@ -138,6 +146,15 @@ func extractIP(r *http.Request) string {
 		return remoteIP.String()
 	}
 	return r.RemoteAddr
+}
+
+func (l *Limiter) isTrustedProxy(ip net.IP) bool {
+	for _, cidr := range l.trustedProxies {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // peerIP extracts the IP from a RemoteAddr string ("1.2.3.4:5678", "[::1]:80").

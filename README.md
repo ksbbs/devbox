@@ -198,8 +198,9 @@ logging:
   retention_days: 30              # 流量日志保留天数
 ```
 
-> 限流仅信任来自本机反向代理（`X-Real-IP` / `X-Forwarded-For`）的客户端 IP；
-> 若端口直接暴露公网，伪造这两个头不会生效，将按真实连接 IP 限流。
+> 限流仅信任来自 `rate_limit.trusted_proxies` 内代理网段的 `X-Real-IP` / `X-Forwarded-For`
+> （默认仅本机回环）；若端口直接暴露公网，伪造这两个头不会生效，将按真实连接 IP 限流。
+> Docker 部署 + 宿主机 nginx 反代时，需把 docker 网桥网段（如 `172.16.0.0/12`）加入 `trusted_proxies`。
 
 ### 环境变量覆盖
 

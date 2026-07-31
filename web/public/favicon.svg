@@ -1,29 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
   <defs>
-    <radialGradient id="bgGrad" cx="50%" cy="50%">
-      <stop offset="0%" stop-color="#2a1548"/>
-      <stop offset="100%" stop-color="#0f0520"/>
+    <radialGradient id="bg" cx="50%" cy="38%" r="85%">
+      <stop offset="0%" stop-color="#37205f"/>
+      <stop offset="100%" stop-color="#0d0618"/>
     </radialGradient>
-    <linearGradient id="topGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#d9b3ff"/>
-      <stop offset="100%" stop-color="#b380ff"/>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f2e4ff"/>
+      <stop offset="100%" stop-color="#bd8bff"/>
     </linearGradient>
-    <linearGradient id="rightGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#9f55ff"/>
-      <stop offset="100%" stop-color="#6b21e0"/>
+    <linearGradient id="left" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#9455f5"/>
     </linearGradient>
-    <linearGradient id="leftGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#6b21e0"/>
-      <stop offset="100%" stop-color="#863bff"/>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6528d4"/>
+      <stop offset="100%" stop-color="#43158f"/>
     </linearGradient>
   </defs>
 
-  <rect width="48" height="48" rx="10" fill="url(#bgGrad)"/>
+  <rect width="48" height="48" rx="11" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="47" height="47" rx="10.5" fill="none" stroke="url(#top)" stroke-opacity="0.35" stroke-width="1"/>
 
-  <path d="M24 2 L42 12 L24 22 L6 12 Z" fill="url(#topGrad)"/>
-  <path d="M24 22 L42 12 L42 32 L24 42 Z" fill="url(#rightGrad)"/>
-  <path d="M24 22 L24 42 L6 32 L6 12 Z" fill="url(#leftGrad)"/>
+  <ellipse cx="24" cy="44" rx="14.5" ry="2.4" fill="#000" opacity="0.5"/>
 
-  <path d="M14 19 L22 27 L14 35" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
-  <path d="M34 19 L26 27 L34 35" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+  <g>
+    <polygon points="24,5 39.5,13.5 24,22 8.5,13.5" fill="url(#top)"/>
+    <polygon points="24,22 39.5,13.5 39.5,33.5 24,42" fill="url(#right)"/>
+    <polygon points="24,22 24,42 8.5,33.5 8.5,13.5" fill="url(#left)"/>
+    <polygon points="24,8 33,12.8 24,17.6 15,12.8" fill="#ffffff" opacity="0.16"/>
+    <line x1="8.5" y1="13.5" x2="24" y2="22" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1"/>
+    <line x1="24" y1="22" x2="39.5" y2="13.5" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1"/>
+  </g>
+
+  <g stroke="#67e8f9" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <polyline points="26.5,25.5 30.5,28.5 26.5,31.5"/>
+    <line x1="32.5" y1="31.5" x2="36" y2="31.5"/>
+  </g>
 </svg>

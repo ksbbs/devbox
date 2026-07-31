@@ -94,3 +94,4 @@ rate_limit:
   interval: "3h"                  # 滚动时间窗口长度
   whitelist: []                   # 白名单 IP/CIDR（免限速）
   blacklist: []                   # 黑名单 IP/CIDR（永远禁止）
+  trusted_proxies: ["127.0.0.1/8", "::1/128"]   # 信任转发头(如 X-Real-IP)的代理网段，反代场景按需加 docker 网桥等

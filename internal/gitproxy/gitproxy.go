@@ -196,10 +196,22 @@ func copyResponseHeaders(w http.ResponseWriter, resp *http.Response) {
 
 func copyRequestHeaders(newReq *http.Request, orig *http.Request) {
 	for k, vv := range orig.Header {
+		if isHopByHopHeader(k) {
+			continue
+		}
 		for _, v := range vv {
 			newReq.Header.Add(k, v)
 		}
 	}
+}
+
+func isHopByHopHeader(k string) bool {
+	switch http.CanonicalHeaderKey(k) {
+	case "Host", "Connection", "Keep-Alive", "Proxy-Connection",
+		"Proxy-Authorization", "Transfer-Encoding", "Upgrade", "TE", "Trailer":
+		return true
+	}
+	return false
 }
 
 func isHTMLResponse(resp *http.Response) bool {

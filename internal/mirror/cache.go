@@ -167,7 +167,7 @@ func (c *Cache) evictLRU() {
 			return filepath.SkipDir
 		}
 		name := d.Name()
-		if filepath.Ext(name) == ".exp" || filepath.Ext(name) == ".hdr" {
+		if filepath.Ext(name) == ".exp" || filepath.Ext(name) == ".hdr" || strings.Contains(name, ".tmp") {
 			return nil
 		}
 		info, err := d.Info()
@@ -213,7 +213,12 @@ func (c *Cache) IsExpired(key string) bool {
 func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream string, ttl time.Duration) {
 	key := upstream + r.URL.Path + "?" + r.URL.RawQuery
 
-	if !c.IsExpired(key) {
+	// Authenticated requests must not read or write the shared cache:
+	// the key has no identity component, so cached responses fetched with
+	// one client's credentials would leak to everyone else.
+	authenticated := r.Header.Get("Authorization") != ""
+
+	if !authenticated && !c.IsExpired(key) {
 		data, hdr, ok := c.Get(key)
 		if ok {
 			for k, vv := range hdr {
@@ -250,13 +255,15 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 
 	// Stream to client while spooling cacheable (200 only, so partial
 	// 206 responses never poison the cache) responses to a temp file.
-	cacheable := resp.StatusCode == http.StatusOK && ttl >= 0
+	cacheable := resp.StatusCode == http.StatusOK && ttl >= 0 && !authenticated
 	path := c.keyPath(key)
 	var tmp *os.File
 	if cacheable {
-		tmp, _ = os.Create(path + ".tmp")
+		// Unique temp name so concurrent misses on the same key can never
+		// interleave writes into one file; only the rename publishes data.
+		tmp, _ = os.CreateTemp(c.dir, filepath.Base(path)+".tmp-")
 		if tmp != nil {
-			defer os.Remove(path + ".tmp")
+			defer os.Remove(tmp.Name())
 		}
 	}
 
@@ -284,7 +291,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 	if info, err := os.Stat(path); err == nil {
 		c.usedBytes -= info.Size()
 	}
-	if err := os.Rename(path+".tmp", path); err != nil {
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		slog.Warn("cache rename error", "path", path, "error", err)
 		return
 	}
@@ -325,16 +332,26 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 }
 
 // copyRequestHeaders copies client headers onto the upstream request,
-// skipping hop-by-hop headers like Host.
+// skipping hop-by-hop headers (RFC 7230 §6.1) like Host, Connection and
+// Proxy-Authorization.
 func copyRequestHeaders(dst *http.Request, src *http.Request) {
 	for k, vv := range src.Header {
-		if k == "Host" {
+		if isHopByHopHeader(k) {
 			continue
 		}
 		for _, v := range vv {
 			dst.Header.Add(k, v)
 		}
 	}
+}
+
+func isHopByHopHeader(k string) bool {
+	switch http.CanonicalHeaderKey(k) {
+	case "Host", "Connection", "Keep-Alive", "Proxy-Connection",
+		"Proxy-Authorization", "Transfer-Encoding", "Upgrade", "TE", "Trailer":
+		return true
+	}
+	return false
 }
 
 // writeCacheMeta persists response headers and (optionally) an expiry file
@@ -408,7 +425,7 @@ func (c *Cache) ScanSize() {
 			return nil
 		}
 		name := d.Name()
-		if filepath.Ext(name) == ".exp" || filepath.Ext(name) == ".hdr" || strings.HasSuffix(name, ".tmp") {
+		if filepath.Ext(name) == ".exp" || filepath.Ext(name) == ".hdr" || strings.Contains(name, ".tmp") {
 			return nil
 		}
 		info, err := d.Info()
