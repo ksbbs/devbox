@@ -151,7 +151,7 @@ type TrafficSummary struct {
 
 func (s *Store) GetTrafficSummary(from, to time.Time) ([]TrafficSummary, error) {
 	rows, err := s.db.Query(
-		"SELECT mirror, COUNT(*), SUM(bytes_in), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY mirror",
+		"SELECT mirror, COUNT(*), SUM(bytes_in), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY mirror ORDER BY mirror",
 		from.Format(time.RFC3339), to.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -199,7 +199,7 @@ func (s *Store) GetTrafficDaily(from, to time.Time) ([]TrafficHourly, error) {
 
 func (s *Store) GetTrafficWeekly(from, to time.Time) ([]TrafficHourly, error) {
 	rows, err := s.db.Query(
-		"SELECT strftime('%Y-%m-%dT00:00:00Z', created_at, 'weekday 1', '-7 days'), mirror, COUNT(*), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY strftime('%Y-%W', created_at), mirror ORDER BY 1",
+		"SELECT strftime('%Y-%m-%dT00:00:00Z', created_at, 'weekday 1', '-7 days'), mirror, COUNT(*), SUM(bytes_out) FROM traffic WHERE created_at BETWEEN ? AND ? GROUP BY strftime('%Y-%W', created_at), mirror ORDER BY strftime('%Y-%W', created_at), mirror",
 		from.Format(time.RFC3339), to.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -318,6 +318,9 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) PurgeOldTraffic(retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format(time.RFC3339)
 	result, err := s.db.Exec("DELETE FROM traffic WHERE created_at < ?", cutoff)
 	if err != nil {

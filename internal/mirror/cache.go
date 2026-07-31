@@ -89,9 +89,9 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 
 	path := c.keyPath(key)
 
-	// Subtract old file size if overwriting
+	oldSize := int64(0)
 	if info, err := os.Stat(path); err == nil {
-		c.usedBytes -= info.Size()
+		oldSize = info.Size()
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -115,6 +115,10 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	hf, err := os.Create(hdrPath)
 	if err != nil {
 		slog.Warn("cache header write error", "path", hdrPath, "error", err)
+		os.Remove(path)
+		// os.Create already truncated/replaced any previous file at path, so
+		// drop its size contribution to keep usedBytes in sync with disk.
+		c.usedBytes -= oldSize
 		return
 	}
 	for k, vv := range hdr {
@@ -124,18 +128,25 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	}
 	hf.Close()
 
+	expPath := path + ".exp"
 	if ttl > 0 {
-		expPath := path + ".exp"
 		ef, err := os.Create(expPath)
 		if err != nil {
 			slog.Warn("cache expiry write error", "path", expPath, "error", err)
+			os.Remove(path)
+			os.Remove(hdrPath)
+			c.usedBytes -= oldSize
 			return
 		}
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
 		ef.Close()
+	} else {
+		// ttl<=0 means never expire: drop any stale expiry marker from an
+		// earlier TTL so shorter/zero TTLs take effect immediately.
+		os.Remove(expPath)
 	}
 
-	c.usedBytes += int64(len(data))
+	c.usedBytes += int64(len(data)) - oldSize
 
 	if c.maxBytes > 0 && c.usedBytes > c.maxBytes {
 		c.evictLRU()
@@ -211,14 +222,14 @@ func (c *Cache) IsExpired(key string) bool {
 }
 
 func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream string, ttl time.Duration) {
-	key := upstream + r.URL.Path + "?" + r.URL.RawQuery
+	key := r.Method + "|" + upstream + r.URL.Path + "?" + r.URL.RawQuery
 
 	// Authenticated requests must not read or write the shared cache:
 	// the key has no identity component, so cached responses fetched with
 	// one client's credentials would leak to everyone else.
 	authenticated := r.Header.Get("Authorization") != ""
 
-	if !authenticated && !c.IsExpired(key) {
+	if r.Method == http.MethodGet && !authenticated && !c.IsExpired(key) {
 		data, hdr, ok := c.Get(key)
 		if ok {
 			for k, vv := range hdr {
@@ -242,6 +253,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
+	newReq.ContentLength = r.ContentLength
 	copyRequestHeaders(newReq, r)
 
 	resp, err := proxyClient.Do(newReq)
@@ -255,7 +267,7 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 
 	// Stream to client while spooling cacheable (200 only, so partial
 	// 206 responses never poison the cache) responses to a temp file.
-	cacheable := resp.StatusCode == http.StatusOK && ttl >= 0 && !authenticated
+	cacheable := resp.StatusCode == http.StatusOK && ttl >= 0 && !authenticated && r.Method == http.MethodGet
 	path := c.keyPath(key)
 	var tmp *os.File
 	if cacheable {
@@ -288,15 +300,24 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Stat before the atomic rename: after it, path already points at the new
+	// file whose size equals written, which would cancel out the accounting
+	// below and keep usedBytes from ever growing past maxBytes.
+	oldSize := int64(0)
 	if info, err := os.Stat(path); err == nil {
-		c.usedBytes -= info.Size()
+		oldSize = info.Size()
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		slog.Warn("cache rename error", "path", path, "error", err)
 		return
 	}
-	c.writeCacheMeta(path, respHdr, ttl)
-	c.usedBytes += written
+	if !c.writeCacheMeta(path, respHdr, ttl) {
+		// writeCacheMeta already removed the cache file on failure; the
+		// replaced old entry is gone too, so drop its size contribution.
+		c.usedBytes -= oldSize
+		return
+	}
+	c.usedBytes += written - oldSize
 	if c.maxBytes > 0 && c.usedBytes > c.maxBytes {
 		c.evictLRU()
 	}
@@ -313,6 +334,7 @@ func (c *Cache) ProxyStream(w http.ResponseWriter, r *http.Request, upstream str
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
+	newReq.ContentLength = r.ContentLength
 	copyRequestHeaders(newReq, r)
 
 	resp, err := proxyClient.Do(newReq)
@@ -355,13 +377,15 @@ func isHopByHopHeader(k string) bool {
 }
 
 // writeCacheMeta persists response headers and (optionally) an expiry file
-// for a cached entry. Callers must hold c.mu.
-func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) {
+// for a cached entry. It returns false when metadata could not be written;
+// in that case the cache file itself is removed. Callers must hold c.mu.
+func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) bool {
 	hdrPath := path + ".hdr"
 	hf, err := os.Create(hdrPath)
 	if err != nil {
 		slog.Warn("cache header write error", "path", hdrPath, "error", err)
-		return
+		os.Remove(path)
+		return false
 	}
 	for k, vv := range hdr {
 		for _, v := range vv {
@@ -370,16 +394,23 @@ func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) 
 	}
 	hf.Close()
 
+	expPath := path + ".exp"
 	if ttl > 0 {
-		expPath := path + ".exp"
 		ef, err := os.Create(expPath)
 		if err != nil {
 			slog.Warn("cache expiry write error", "path", expPath, "error", err)
-			return
+			os.Remove(path)
+			os.Remove(hdrPath)
+			return false
 		}
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
 		ef.Close()
+	} else {
+		// Never-expire entries must not keep a stale expiry marker from a
+		// previous TTL, otherwise shortening the TTL to 0 would not stick.
+		os.Remove(expPath)
 	}
+	return true
 }
 
 func (c *Cache) Hits() int64   { return c.hits.Load() }

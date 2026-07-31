@@ -57,7 +57,10 @@ func (n *NpmMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (n *NpmMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -74,6 +77,7 @@ func (n *NpmMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := n.upstream
 		cacheTTL := n.cacheTTL
 		n.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/npm")
 		if r.URL.Path == "" || r.URL.Path == "/" {
 			r.URL.Path = "/"

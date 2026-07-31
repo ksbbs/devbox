@@ -312,15 +312,18 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	if ticket.asset.Size > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(ticket.asset.Size, 10))
-	}
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": ticket.asset.Name}))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	if r.Method == http.MethodHead {
+		// Only HEAD preflight can rely on the ticket metadata: the actual
+		// GET streams the upstream body and must not pre-announce a length
+		// that could mismatch the real content.
+		if ticket.asset.Size > 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(ticket.asset.Size, 10))
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -354,6 +357,12 @@ func (d *Dashboard) ReleaseDownloadHandler(w http.ResponseWriter, r *http.Reques
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		slog.Warn("release download upstream status", "source_id", ticket.sourceID, "status", resp.StatusCode)
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			// Client-side errors (404 deleted asset, 403 expired URL, ...)
+			// are pass-through so the caller sees the real reason.
+			http.Error(w, resp.Status, resp.StatusCode)
+			return
+		}
 		http.Error(w, "release download upstream returned "+resp.Status, http.StatusBadGateway)
 		return
 	}

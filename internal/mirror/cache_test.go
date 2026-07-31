@@ -258,6 +258,59 @@ func TestCacheUsedBytesTracking(t *testing.T) {
 	}
 }
 
+func TestCacheProxyHTTPUsedBytesTracking(t *testing.T) {
+	body := []byte("proxy-tracked-body")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	c := NewCache(dir, 1<<20)
+
+	req1 := httptest.NewRequest("GET", "/track-1", nil)
+	w1 := httptest.NewRecorder()
+	c.ProxyHTTP(w1, req1, ts.URL, time.Minute)
+	if c.usedBytes != int64(len(body)) {
+		t.Fatalf("expected usedBytes=%d after proxy write, got %d", len(body), c.usedBytes)
+	}
+
+	req2 := httptest.NewRequest("GET", "/track-2", nil)
+	w2 := httptest.NewRecorder()
+	c.ProxyHTTP(w2, req2, ts.URL, time.Minute)
+	if c.usedBytes != int64(2*len(body)) {
+		t.Fatalf("expected usedBytes=%d after second write, got %d", 2*len(body), c.usedBytes)
+	}
+}
+
+func TestCacheProxyHTTPEvictsBeyondMaxBytes(t *testing.T) {
+	body := []byte("01234567890123") // 14 bytes
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	c := NewCache(dir, 20)
+
+	req1 := httptest.NewRequest("GET", "/evict-1", nil)
+	w1 := httptest.NewRecorder()
+	c.ProxyHTTP(w1, req1, ts.URL, time.Minute)
+
+	req2 := httptest.NewRequest("GET", "/evict-2", nil)
+	w2 := httptest.NewRecorder()
+	c.ProxyHTTP(w2, req2, ts.URL, time.Minute)
+
+	if c.usedBytes > 20 {
+		t.Fatalf("expected usedBytes <= maxBytes(20) after eviction, got %d", c.usedBytes)
+	}
+	if c.usedBytes != 14 {
+		t.Fatalf("expected usedBytes=14 (one entry evicted), got %d", c.usedBytes)
+	}
+}
+
 func TestCacheDir(t *testing.T) {
 	dir := t.TempDir()
 	c := NewCache(dir, 1<<20)

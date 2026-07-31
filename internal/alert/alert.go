@@ -46,7 +46,11 @@ func (w *WebhookProvider) Send(subject, body string) error {
 	if err != nil {
 		return fmt.Errorf("alert webhook: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	// Treat non-2xx responses as failures so misconfigured webhooks surface.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("alert webhook returned %d", resp.StatusCode)
+	}
 	return nil
 }
 

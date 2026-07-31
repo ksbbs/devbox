@@ -43,7 +43,7 @@ mirrors:
   hf:
     enabled: true
     upstream: "https://huggingface.co"
-    cache_ttl: "7d"
+    cache_ttl: "0"
   conda:
     enabled: true
     upstream: "https://repo.anaconda.com"
@@ -58,7 +58,7 @@ mirrors:
     cache_ttl: "7d"
   nuget:
     enabled: true
-    upstream: "https://api.nuget.org/v3/index.json"
+    upstream: "https://api.nuget.org/v3"
     cache_ttl: "7d"
   apt:
     enabled: true

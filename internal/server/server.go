@@ -138,6 +138,7 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 	}
 
 	dash.SetRateLimitConfigAccessor(s)
+	dash.SetGitProxyConfigAccessor(s)
 	dash.SetSaveConfig(s.saveConfig)
 
 	return s, nil
@@ -165,6 +166,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/stats/logs", s.dash.LogHandler)
 	mux.HandleFunc("/api/config/mirrors", s.dash.MirrorConfigHandler)
 	mux.HandleFunc("/api/config/ratelimit", s.dash.RateLimitConfigHandler)
+	mux.HandleFunc("/api/config/gitproxy", s.dash.GitProxyConfigHandler)
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 	mux.HandleFunc("/api/auth/check", s.dash.AuthCheckHandler)
@@ -186,13 +188,31 @@ func (s *Server) Start() error {
 	if s.frontDir != "" {
 		if _, err := os.Stat(s.frontDir); err == nil {
 			fileServer := http.FileServer(http.Dir(s.frontDir))
+			frontDir := filepath.Clean(s.frontDir)
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				path := r.URL.Path
 				if path == "/" {
 					path = "/index.html"
 				}
-				if _, err := os.Stat(s.frontDir + path); err != nil {
-					r.URL.Path = "/index.html"
+				full := filepath.Join(frontDir, filepath.FromSlash(path))
+				if full != frontDir && !strings.HasPrefix(full, frontDir+string(filepath.Separator)) {
+					// Path escapes the frontend dir (".." traversal): fall back.
+					full = filepath.Join(frontDir, "index.html")
+				}
+				if _, err := os.Stat(full); err != nil {
+					// SPA fallback. Serve index.html directly instead of
+					// rewriting r.URL.Path: http.FileServer 301-redirects a
+					// rewritten "/index.html" path to "./" (breaking deep
+					// links like /mirrors).
+					data, rerr := os.ReadFile(filepath.Join(frontDir, "index.html"))
+					if rerr != nil {
+						http.NotFound(w, r)
+						return
+					}
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(data)
+					return
 				}
 				fileServer.ServeHTTP(w, r)
 			})
@@ -208,16 +228,15 @@ func (s *Server) Start() error {
 	go s.tokenCacheCleanup()
 
 	port, accessLog := s.serverConfigSnapshot()
-	rl := s.rateLimitConfigSnapshot()
 	addr := fmt.Sprintf(":%d", port)
 	slog.Info("DevBox starting", "addr", addr)
 
 	handler := logMiddleware(mux, accessLog)
 	handler = s.bodyLimitMiddleware(handler)
-	if s.getLimiter() != nil {
-		handler = s.rateLimitMiddleware(handler)
-		slog.Info("rate limiting enabled", "rate", rl.Rate, "interval", rl.Interval)
-	}
+	// Always install the rate limit middleware; it internally no-ops when
+	// rate limiting is disabled, so enabling it at runtime works without a
+	// server restart.
+	handler = s.rateLimitMiddleware(handler)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -340,6 +359,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
+	upstreamReq.ContentLength = r.ContentLength
 
 	// Copy client headers (except Host)
 	for k, vv := range r.Header {
@@ -381,10 +401,14 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		}
 
 		resp.Body.Close()
-		// Retry without token — let upstream give fresh 401
-		slog.Warn("registry token rejected, retrying without token")
-		s.proxyRegistryRequest(w, r, target, "", depth+1)
-		return
+		// Retry without token — let upstream give fresh 401.
+		// Only replay body-less requests: http.Client.Do closed r.Body
+		// on the first attempt, so uploads cannot be safely retried.
+		if r.Method == http.MethodGet || r.ContentLength == 0 {
+			slog.Warn("registry token rejected, retrying without token")
+			s.proxyRegistryRequest(w, r, target, "", depth+1)
+			return
+		}
 	}
 
 	// If 401 without token, get a new token with scope and retry
@@ -403,8 +427,10 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			if err == nil && newToken != "" {
 				resp.Body.Close()
 				slog.Info("registry got new token, retrying", "scope", scope)
-				s.proxyRegistryRequest(w, r, target, newToken, depth+1)
-				return
+				if r.Method == http.MethodGet || r.ContentLength == 0 {
+					s.proxyRegistryRequest(w, r, target, newToken, depth+1)
+					return
+				}
 			}
 		}
 
@@ -484,14 +510,16 @@ func (s *Server) getRegistryToken(regInfo registryInfo, scope string) (string, e
 		return "", fmt.Errorf("empty token")
 	}
 
-	// Cache token (use expires_in minus 5 min safety margin, min 2 min)
+	// Cache token with a 5 min safety margin; never cache a token for
+	// longer than it is actually valid (clamping to a minimum would serve
+	// expired tokens and cause 401 retry storms).
 	ttl := time.Duration(tokenResp.ExpiresIn) * time.Second
 	if ttl == 0 {
 		ttl = 5 * time.Minute
 	}
 	ttl = ttl - 5*time.Minute
-	if ttl < 2*time.Minute {
-		ttl = 2 * time.Minute
+	if ttl <= 0 {
+		return tokenResp.Token, nil
 	}
 
 	s.tokenCache.mu.Lock()
@@ -648,13 +676,17 @@ func (s *Server) configWatcher() {
 		if fi.ModTime().Equal(lastMtime) {
 			continue
 		}
-		lastMtime = fi.ModTime()
+		newMtime := fi.ModTime()
 
 		cfg, err := config.Load(s.configPath)
 		if err != nil {
+			// Do not advance lastMtime on failure: keep polling this file
+			// state so a transient write (e.g. atomic rename in progress)
+			// retries until the config becomes valid again.
 			slog.Error("config hot-reload failed to load, keeping old config", "error", err)
 			continue
 		}
+		lastMtime = newMtime
 
 		s.applyRuntimeConfig(cfg)
 		slog.Info("config hot-reloaded", "path", s.configPath)
@@ -722,6 +754,8 @@ func (s *Server) saveConfig() error {
 		s.cfg.Mirrors[m.Name()] = existing
 	}
 
+	s.cfg.GitProxy.CacheTTL = s.gitProxy.CacheTTL()
+
 	if err := s.cfg.Save(s.configPath); err != nil {
 		slog.Error("config failed to persist", "error", err)
 		return err
@@ -779,6 +813,20 @@ func (s *Server) SetRateLimitBlacklist(list []string) {
 	s.rebuildLimiter()
 }
 
+func (s *Server) GetCacheTTL() string {
+	s.cfgMu.RLock()
+	gp := s.gitProxy
+	s.cfgMu.RUnlock()
+	return gp.CacheTTL()
+}
+
+func (s *Server) SetCacheTTL(ttl string) error {
+	s.cfgMu.RLock()
+	gp := s.gitProxy
+	s.cfgMu.RUnlock()
+	return gp.SetCacheTTL(ttl)
+}
+
 func (s *Server) rebuildLimiter() {
 	rl := s.rateLimitConfigSnapshot()
 	s.limiterMu.Lock()
@@ -834,7 +882,11 @@ func (s *Server) wrapWithDynamicStats(nameFor func(*http.Request) string, handle
 		start := time.Now()
 		handler(sw, r)
 		name := nameFor(r)
-		if err := s.store.RecordTraffic(name, r.Method, r.URL.Path, 0, sw.bytesWritten, sw.status); err != nil {
+		bytesIn := int64(0)
+		if r.ContentLength > 0 {
+			bytesIn = r.ContentLength
+		}
+		if err := s.store.RecordTraffic(name, r.Method, r.URL.Path, int(bytesIn), sw.bytesWritten, sw.status); err != nil {
 			slog.Warn("record traffic failed", "name", name, "error", err)
 		}
 		slog.Info("request stats",
@@ -884,7 +936,9 @@ type statusWriter struct {
 }
 
 func (sw *statusWriter) WriteHeader(code int) {
-	sw.status = code
+	if sw.status == 0 {
+		sw.status = code
+	}
 	sw.ResponseWriter.WriteHeader(code)
 }
 
@@ -919,8 +973,12 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 		// force attempts are throttled like everything else.
 		if path == "/api/auth/login" {
 			// no-op: fall through to rate limiting
-		} else if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
-			strings.HasPrefix(path, "/token") || path == "/" || path == "/health" ||
+		} else if (strings.HasPrefix(path, "/api/") &&
+			path != "/api/search" &&
+			!strings.HasPrefix(path, "/api/release-sources") &&
+			!strings.HasPrefix(path, "/api/release-download")) ||
+			strings.HasPrefix(path, "/v2/") || strings.HasPrefix(path, "/token") ||
+			path == "/" || path == "/health" ||
 			strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js") ||
 			strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {
 			next.ServeHTTP(w, r)

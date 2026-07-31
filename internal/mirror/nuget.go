@@ -57,7 +57,10 @@ func (n *NuGetMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (n *NuGetMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -74,6 +77,7 @@ func (n *NuGetMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := n.upstream
 		cacheTTL := n.cacheTTL
 		n.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/nuget")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}
@@ -91,7 +95,12 @@ func (n *NuGetMirror) SetCacheTTL(ttl string) error {
 }
 
 func (n *NuGetMirror) HealthCheck() error {
-	resp, err := HealthGet(strings.TrimRight(n.Upstream(), "/"))
+	target := strings.TrimRight(n.Upstream(), "/")
+	if strings.HasSuffix(target, "/v3") {
+		// The v3 API root itself is not a valid endpoint; probe its index.
+		target += "/index.json"
+	}
+	resp, err := HealthGet(target)
 	if err != nil {
 		return fmt.Errorf("nuget upstream unreachable: %w", err)
 	}

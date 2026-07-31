@@ -57,7 +57,10 @@ func (rg *RubyGemsMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (rg *RubyGemsMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -74,6 +77,7 @@ func (rg *RubyGemsMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := rg.upstream
 		cacheTTL := rg.cacheTTL
 		rg.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/rubygems")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

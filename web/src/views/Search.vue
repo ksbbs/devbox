@@ -16,6 +16,7 @@ const selectedRegistry = ref('')
 const page = ref(1)
 const perPage = 10
 const hasMore = ref(false)
+let searchSeq = 0
 
 onMounted(async () => {
   try {
@@ -44,18 +45,23 @@ async function doSearch() {
 }
 
 async function fetchResults() {
+  const seq = ++searchSeq
   loading.value = true
   errorMsg.value = ''
   try {
     const data = await searchMirrors(query.value, selectedRegistry.value, page.value, perPage)
+    // 丢弃过期请求的结果，避免快速翻页/换词时旧响应覆盖新数据
+    if (seq !== searchSeq) return
     results.value = data.results || []
     hasMore.value = data.has_more ?? data.hasMore ?? false
   } catch (e: any) {
+    if (seq !== searchSeq) return
     results.value = []
     hasMore.value = false
     errorMsg.value = e.response?.statusText || '搜索失败，请稍后重试'
+  } finally {
+    if (seq === searchSeq) loading.value = false
   }
-  loading.value = false
 }
 
 function nextPage() {

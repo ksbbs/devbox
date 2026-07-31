@@ -57,7 +57,10 @@ func (p *PypiMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (p *PypiMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -74,6 +77,7 @@ func (p *PypiMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		upstream := p.upstream
 		cacheTTL := p.cacheTTL
 		p.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/pypi")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

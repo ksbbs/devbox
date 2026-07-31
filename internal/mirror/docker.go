@@ -57,7 +57,10 @@ func (d *DockerMirror) CacheTTL() string {
 	if secs%3600 == 0 {
 		return fmt.Sprintf("%dh", secs/3600)
 	}
-	return fmt.Sprintf("%dm", secs/60)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 func (d *DockerMirror) ApplyConfig(cfg config.MirrorConfig) {
@@ -73,6 +76,7 @@ func (d *DockerMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
 		d.mu.RLock()
 		upstream := d.upstream
 		d.mu.RUnlock()
+		upstream = strings.TrimRight(upstream, "/")
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/docker")
 		cache.ProxyStream(w, r, upstream)
 	}

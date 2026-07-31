@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -46,10 +47,18 @@ func (l *Limiter) Allow(r *http.Request) bool {
 	ip := l.extractIP(r)
 	ipNet := parseIP(ip)
 
+	// Blacklist stays authoritative even for degenerate configs: a
+	// blacklisted IP must be rejected regardless of quota settings.
 	for _, cidr := range l.blacklist {
 		if cidr.Contains(ipNet) {
 			return false
 		}
+	}
+
+	// Guard against degenerate configs (rate <= 0 or window <= 0): refusing
+	// everything or nothing would take the whole service down with it.
+	if l.limit <= 0 || l.window <= 0 {
+		return true
 	}
 
 	for _, cidr := range l.whitelist {
@@ -109,9 +118,11 @@ func parseCIDRList(list []string) []*net.IPNet {
 			}
 		}
 		_, ipNet, err := net.ParseCIDR(entry)
-		if err == nil {
-			nets = append(nets, ipNet)
+		if err != nil {
+			slog.Warn("ratelimit: invalid CIDR entry ignored", "entry", entry, "error", err)
+			continue
 		}
+		nets = append(nets, ipNet)
 	}
 	return nets
 }

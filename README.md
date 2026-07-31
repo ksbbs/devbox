@@ -19,7 +19,7 @@
 | Conda 镜像 | 代理 `https://repo.anaconda.com` |
 | RubyGems 镜像 | 代理 `https://rubygems.org` |
 | Cargo 镜像 | 代理 `https://static.crates.io/crates` |
-| NuGet 镜像 | 代理 `https://api.nuget.org/v3/index.json` |
+| NuGet 镜像 | 代理 `https://api.nuget.org/v3` |
 | APT 镜像 | 代理 `https://deb.debian.org/debian` |
 | Alpine 镜像 | 代理 `https://dl-cdn.alpinelinux.org/alpine` |
 | Homebrew 镜像 | 代理 `https://ghcr.io/v2/homebrew/core` |
@@ -30,6 +30,7 @@
 | Docker v2 Auth | Token 认证代理，让 `docker pull` 不依赖直接访问上游 |
 | 镜像搜索 | Dashboard 搜索 npm、Docker Hub、PyPI、Conda、RubyGems、Cargo、NuGet 包 |
 | IP 限流 | 滚动时间窗口限流防滥用，白名单免限速，黑名单直接拒绝 |
+| 缓存 TTL 可调 | 面板可逐镜像配置缓存 TTL（0=永久缓存），Git 代理缓存 TTL 独立可调 |
 | 健康检查端点 | `/health` 端点供 Kubernetes/Docker probe 使用 |
 | Prometheus 指标 | `/metrics` 端点暴露缓存命中率等指标 |
 | 优雅关闭 | 收到 SIGTERM 后等待请求完成再退出 |

@@ -1,12 +1,15 @@
 package gitproxy
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"devbox/internal/config"
 	"devbox/internal/mirror"
 )
 
@@ -25,6 +28,7 @@ type GitProxy struct {
 	rawUpstream    string
 	cacheTTL       time.Duration
 	cache          *mirror.Cache
+	mu             sync.RWMutex
 }
 
 func New(githubUpstream, gitlabUpstream, rawUpstream string, cacheTTL time.Duration, cache *mirror.Cache) *GitProxy {
@@ -35,6 +39,37 @@ func New(githubUpstream, gitlabUpstream, rawUpstream string, cacheTTL time.Durat
 		cacheTTL:       cacheTTL,
 		cache:          cache,
 	}
+}
+
+func (gp *GitProxy) CacheTTL() string {
+	gp.mu.RLock()
+	defer gp.mu.RUnlock()
+	d := gp.cacheTTL
+	if d == 0 {
+		return "0"
+	}
+	secs := d / time.Second
+	if secs%86400 == 0 {
+		return fmt.Sprintf("%dd", secs/86400)
+	}
+	if secs%3600 == 0 {
+		return fmt.Sprintf("%dh", secs/3600)
+	}
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
+}
+
+func (gp *GitProxy) SetCacheTTL(ttl string) error {
+	d, err := config.ParseDuration(ttl)
+	if err != nil {
+		return err
+	}
+	gp.mu.Lock()
+	defer gp.mu.Unlock()
+	gp.cacheTTL = d
+	return nil
 }
 
 func (gp *GitProxy) Handler(w http.ResponseWriter, r *http.Request) {
@@ -86,9 +121,17 @@ func isRawRequest(path string) bool {
 }
 
 func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstream, path string) {
-	if gp.cache != nil && gp.cacheTTL > 0 {
+	gp.mu.RLock()
+	cacheTTL := gp.cacheTTL
+	gp.mu.RUnlock()
+	if gp.cache != nil && cacheTTL > 0 {
 		target := upstream + path
 		if resp, err := client.Head(target); err == nil {
+			if resp.StatusCode == http.StatusNotFound {
+				resp.Body.Close()
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -99,7 +142,7 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 		}
 		orig := r.URL.Path
 		r.URL.Path = path
-		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
+		gp.cache.ProxyHTTP(w, r, upstream, cacheTTL)
 		r.URL.Path = orig
 		return
 	}
@@ -121,9 +164,17 @@ func (gp *GitProxy) proxyArchive(w http.ResponseWriter, r *http.Request, upstrea
 }
 
 func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string) {
-	if gp.cache != nil && gp.cacheTTL > 0 {
+	gp.mu.RLock()
+	cacheTTL := gp.cacheTTL
+	gp.mu.RUnlock()
+	if gp.cache != nil && cacheTTL > 0 {
 		target := gp.rawUpstream + path
 		if resp, err := client.Head(target); err == nil {
+			if resp.StatusCode == http.StatusNotFound {
+				resp.Body.Close()
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			if isHTMLResponse(resp) {
 				resp.Body.Close()
 				slog.Warn("gitproxy blocking HTML response (cache)", "path", path)
@@ -134,7 +185,7 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 		}
 		orig := r.URL.Path
 		r.URL.Path = path
-		gp.cache.ProxyHTTP(w, r, gp.rawUpstream, gp.cacheTTL)
+		gp.cache.ProxyHTTP(w, r, gp.rawUpstream, cacheTTL)
 		r.URL.Path = orig
 		return
 	}
@@ -156,10 +207,13 @@ func (gp *GitProxy) proxyRaw(w http.ResponseWriter, r *http.Request, path string
 }
 
 func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstream, path string) {
-	if gp.cache != nil && gp.cacheTTL > 0 && r.Method == "GET" {
+	gp.mu.RLock()
+	cacheTTL := gp.cacheTTL
+	gp.mu.RUnlock()
+	if gp.cache != nil && cacheTTL > 0 && r.Method == "GET" {
 		orig := r.URL.Path
 		r.URL.Path = path
-		gp.cache.ProxyHTTP(w, r, upstream, gp.cacheTTL)
+		gp.cache.ProxyHTTP(w, r, upstream, cacheTTL)
 		r.URL.Path = orig
 		return
 	}
@@ -173,6 +227,7 @@ func (gp *GitProxy) proxySmartHTTP(w http.ResponseWriter, r *http.Request, upstr
 		http.Error(w, "request error", http.StatusInternalServerError)
 		return
 	}
+	newReq.ContentLength = r.ContentLength
 	copyRequestHeaders(newReq, r)
 
 	resp, err := client.Do(newReq)

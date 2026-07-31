@@ -37,10 +37,22 @@ onMounted(async () => {
 async function saveRateLimit() {
   rlSaving.value = true
   rlMsg.value = ''
+  // 与后端校验保持一致：rate 必须为正、interval 必须可解析
+  if (!Number.isInteger(rlRate.value) || rlRate.value <= 0) {
+    rlMsg.value = '最大请求数必须为正整数'
+    rlSaving.value = false
+    return
+  }
+  const interval = rlInterval.value.trim()
+  if (!/^\d+(ms|s|m|h|d)$/.test(interval)) {
+    rlMsg.value = '时间窗口格式无效（如 3h、30m、1d）'
+    rlSaving.value = false
+    return
+  }
   try {
     const wl = rlWhitelist.value.split(',').map(s => s.trim()).filter(Boolean)
     const bl = rlBlacklist.value.split(',').map(s => s.trim()).filter(Boolean)
-    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, interval: rlInterval.value, whitelist: wl, blacklist: bl })
+    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, interval, whitelist: wl, blacklist: bl })
     rlEnabled.value = res.enabled
     rlRate.value = res.rate
     rlInterval.value = res.interval || rlInterval.value

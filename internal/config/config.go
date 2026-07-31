@@ -19,6 +19,10 @@ type Config struct {
 	Logging   LoggingConfig           `yaml:"logging"`
 	RateLimit RateLimitConfig         `yaml:"rate_limit"`
 	Alerts    AlertConfig             `yaml:"alerts"`
+
+	// AuthTokenOrig holds the auth_token value from the yaml file so that
+	// Save() can avoid persisting an env-injected DEVBOX_AUTH_TOKEN.
+	AuthTokenOrig string `yaml:"-"`
 }
 
 type AlertConfig struct {
@@ -74,11 +78,21 @@ type RateLimitConfig struct {
 }
 
 func (cfg *Config) Save(path string) error {
+	// Never persist an env-injected auth token: DEVBOX_AUTH_TOKEN must stay
+	// out of the config file. Save the file value (or empty) instead.
+	orig := cfg.Server.AuthToken
+	cfg.Server.AuthToken = cfg.AuthTokenOrig
 	data, err := yaml.Marshal(cfg)
+	cfg.Server.AuthToken = orig
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(path, data, 0600)
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return os.Rename(tmp, path)
 }
 
 func Load(path string) (*Config, error) {
@@ -91,6 +105,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+
+	// Remember the file value before env overrides replace it.
+	cfg.AuthTokenOrig = cfg.Server.AuthToken
 
 	applyDefaults(cfg)
 	applyEnvOverrides(cfg)
@@ -150,11 +167,11 @@ func applyDefaults(cfg *Config) {
 		"quay":     {Enabled: true, Upstream: "https://quay.io", CacheTTL: "0"},
 		"mcr":      {Enabled: true, Upstream: "https://mcr.microsoft.com", CacheTTL: "0"},
 		"ghapi":    {Enabled: true, Upstream: "https://api.github.com", CacheTTL: "0"},
-		"hf":       {Enabled: true, Upstream: "https://huggingface.co", CacheTTL: "7d"},
+		"hf":       {Enabled: true, Upstream: "https://huggingface.co", CacheTTL: "0"},
 		"conda":    {Enabled: true, Upstream: "https://repo.anaconda.com", CacheTTL: "30d"},
 		"rubygems": {Enabled: true, Upstream: "https://rubygems.org", CacheTTL: "7d"},
 		"cargo":    {Enabled: true, Upstream: "https://static.crates.io/crates", CacheTTL: "7d"},
-		"nuget":    {Enabled: true, Upstream: "https://api.nuget.org/v3/index.json", CacheTTL: "7d"},
+		"nuget":    {Enabled: true, Upstream: "https://api.nuget.org/v3", CacheTTL: "7d"},
 		"apt":      {Enabled: true, Upstream: "https://deb.debian.org/debian", CacheTTL: "0"},
 		"alpine":   {Enabled: true, Upstream: "https://dl-cdn.alpinelinux.org/alpine", CacheTTL: "0"},
 		"homebrew": {Enabled: true, Upstream: "https://ghcr.io/v2/homebrew/core", CacheTTL: "0"},
@@ -185,7 +202,11 @@ func applyDefaults(cfg *Config) {
 
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("DEVBOX_SERVER_PORT"); v != "" {
-		cfg.Server.Port = mustInt(v)
+		if n, err := mustInt(v); err == nil {
+			cfg.Server.Port = n
+		} else {
+			slog.Error("invalid env DEVBOX_SERVER_PORT, keeping file value", "value", v)
+		}
 	}
 	if v := os.Getenv("DEVBOX_AUTH_TOKEN"); v != "" {
 		cfg.Server.AuthToken = v
@@ -200,13 +221,25 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Cache.MaxSize = v
 	}
 	if v := os.Getenv("DEVBOX_LOGGING_RETENTION_DAYS"); v != "" {
-		cfg.Logging.RetentionDays = mustInt(v)
+		if n, err := mustInt(v); err == nil {
+			cfg.Logging.RetentionDays = n
+		} else {
+			slog.Error("invalid env DEVBOX_LOGGING_RETENTION_DAYS, keeping file value", "value", v)
+		}
 	}
 	if v := os.Getenv("DEVBOX_RATE_LIMIT_ENABLED"); v != "" {
-		cfg.RateLimit.Enabled = mustBool(v)
+		if b, err := mustBool(v); err == nil {
+			cfg.RateLimit.Enabled = b
+		} else {
+			slog.Error("invalid env DEVBOX_RATE_LIMIT_ENABLED, keeping file value", "value", v)
+		}
 	}
 	if v := os.Getenv("DEVBOX_RATE_LIMIT_RATE"); v != "" {
-		cfg.RateLimit.Rate = mustInt(v)
+		if n, err := mustInt(v); err == nil {
+			cfg.RateLimit.Rate = n
+		} else {
+			slog.Error("invalid env DEVBOX_RATE_LIMIT_RATE, keeping file value", "value", v)
+		}
 	}
 	if v := os.Getenv("DEVBOX_RATE_LIMIT_INTERVAL"); v != "" {
 		cfg.RateLimit.Interval = v
@@ -224,9 +257,13 @@ func applyEnvOverrides(cfg *Config) {
 		}
 		enabled := os.Getenv(fmt.Sprintf("DEVBOX_MIRROR_%s_ENABLED", strings.ToUpper(name)))
 		if enabled != "" {
-			m := cfg.Mirrors[name]
-			m.Enabled = mustBool(enabled)
-			cfg.Mirrors[name] = m
+			if b, err := mustBool(enabled); err == nil {
+				m := cfg.Mirrors[name]
+				m.Enabled = b
+				cfg.Mirrors[name] = m
+			} else {
+				slog.Error("invalid env DEVBOX_MIRROR_"+strings.ToUpper(name)+"_ENABLED, keeping file value", "value", enabled)
+			}
 		}
 	}
 }
@@ -284,6 +321,10 @@ func ParseDuration(s string) (time.Duration, error) {
 		if err != nil {
 			return 0, fmt.Errorf("invalid days: %s", s)
 		}
+		// Guard against int overflow when converting days to nanoseconds.
+		if days > int((1<<63-1)/(24*int(time.Hour))) {
+			return 0, fmt.Errorf("duration too large: %s", s)
+		}
 		return time.Duration(days) * 24 * time.Hour, nil
 	}
 	return time.ParseDuration(s)
@@ -304,6 +345,10 @@ func parseCacheMaxSize(cfg *Config) error {
 			if err != nil {
 				return fmt.Errorf("invalid cache max_size: %s", s)
 			}
+			// Guard against multiplication overflow (e.g. huge values in GB).
+			if sf.mul != 1 && val > (1<<63-1)/sf.mul {
+				return fmt.Errorf("cache max_size too large: %s", s)
+			}
 			cfg.Cache.MaxSizeBytes = val * sf.mul
 			return nil
 		}
@@ -311,12 +356,10 @@ func parseCacheMaxSize(cfg *Config) error {
 	return fmt.Errorf("invalid cache max_size suffix: %s", s)
 }
 
-func mustInt(s string) int {
-	v, _ := strconv.Atoi(s)
-	return v
+func mustInt(s string) (int, error) {
+	return strconv.Atoi(s)
 }
 
-func mustBool(s string) bool {
-	v, _ := strconv.ParseBool(s)
-	return v
+func mustBool(s string) (bool, error) {
+	return strconv.ParseBool(s)
 }
