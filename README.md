@@ -85,7 +85,7 @@ docker run -d \
   -p 127.0.0.1:8080:8080 \
   -v devbox-data:/data \
   -e DEVBOX_PUBLIC_URL=https://dev.example.com \
-  ghcr.io/ksbbs/devbox:latest
+  ghcr.io/wha7ev9r/devbox:latest
 ```
 
 ## 配置
@@ -198,6 +198,10 @@ logging:
   retention_days: 30              # 流量日志保留天数
 ```
 
+> 限流仅信任来自 `rate_limit.trusted_proxies` 内代理网段的 `X-Real-IP` / `X-Forwarded-For`
+> （默认仅本机回环）；若端口直接暴露公网，伪造这两个头不会生效，将按真实连接 IP 限流。
+> Docker 部署 + 宿主机 nginx 反代时，需把 docker 网桥网段（如 `172.16.0.0/12`）加入 `trusted_proxies`。
+
 ### 环境变量覆盖
 
 所有配置项都可通过环境变量覆盖，格式 `DEVBOX_<层级>_<键>`：
@@ -280,7 +284,7 @@ Docker Hub 使用 `registry-mirrors` 配置（Docker 原生支持）：
 docker pull dev.example.com/ghcr/owner/image:tag
 
 # 例如拉取 DevBox 自身
-docker pull dev.example.com/ghcr/ksbbs/devbox:latest
+docker pull dev.example.com/ghcr/wha7ev9r/devbox:latest
 ```
 
 > 不需要加 `https://`，Docker 客户端会自动走 HTTPS。如果未配置 SSL，需加 `http://` 前缀并设置 Docker insecure registry。

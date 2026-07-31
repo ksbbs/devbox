@@ -45,7 +45,7 @@ async function fetchResults() {
   try {
     const data = await searchMirrors(query.value, selectedRegistry.value, page.value, perPage)
     results.value = data.results || []
-    hasMore.value = data.hasMore || false
+    hasMore.value = data.has_more ?? data.hasMore ?? false
   } catch (e: any) {
     results.value = []
     hasMore.value = false
@@ -82,7 +82,7 @@ function installCommand(name: string, registry: string) {
 
 function copyInstall(name: string, registry: string) {
   navigator.clipboard.writeText(installCommand(name, registry))
-  copiedName.value = name
+  copiedName.value = registry + name
   setTimeout(() => copiedName.value = null, 1500)
 }
 
@@ -148,7 +148,7 @@ function tagClass(registry: string) {
             <td class="max-w-[420px] truncate font-mono text-xs text-emerald-300">{{ installCommand(r.name, r.registry) }}</td>
             <td>
               <button class="btn" @click="copyInstall(r.name, r.registry)">
-                {{ copiedName === r.name ? 'copied' : 'copy' }}
+                {{ copiedName === r.registry + r.name ? 'copied' : 'copy' }}
               </button>
             </td>
           </tr>

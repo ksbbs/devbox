@@ -69,11 +69,11 @@ func (rg *RubyGemsMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (rg *RubyGemsMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	rg.mu.RLock()
-	upstream := rg.upstream
-	cacheTTL := rg.cacheTTL
-	rg.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		rg.mu.RLock()
+		upstream := rg.upstream
+		cacheTTL := rg.cacheTTL
+		rg.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/rubygems")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

@@ -1,6 +1,6 @@
 services:
   devbox:
-    image: ghcr.io/ksbbs/devbox:latest
+    image: ghcr.io/wha7ev9r/devbox:latest
     container_name: devbox
     restart: always
     ports:

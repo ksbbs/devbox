@@ -6,7 +6,12 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
+
+// searchClient bounds upstream registry API calls so a hung upstream cannot
+// stall the request (or leak goroutines) forever.
+var searchClient = &http.Client{Timeout: 10 * time.Second}
 
 type SearchHandler struct{}
 
@@ -98,7 +103,7 @@ func (sh *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchNpm(query string, page, perPage int) ([]SearchResult, bool) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=%d&from=%d", url.QueryEscape(query), perPage, (page-1)*perPage))
+	resp, err := searchClient.Get(fmt.Sprintf("https://registry.npmjs.org/-/v1/search?text=%s&size=%d&from=%d", url.QueryEscape(query), perPage, (page-1)*perPage))
 	if err != nil {
 		return nil, false
 	}
@@ -131,7 +136,7 @@ func searchNpm(query string, page, perPage int) ([]SearchResult, bool) {
 }
 
 func searchDocker(query string, page, perPage int) ([]SearchResult, bool) {
-	resp, err := http.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=%d&page=%d", url.QueryEscape(query), perPage, page))
+	resp, err := searchClient.Get(fmt.Sprintf("https://registry.hub.docker.com/v2/search/repositories/?query=%s&page_size=%d&page=%d", url.QueryEscape(query), perPage, page))
 	if err != nil {
 		return nil, false
 	}
@@ -164,7 +169,7 @@ func searchDocker(query string, page, perPage int) ([]SearchResult, bool) {
 }
 
 func searchPyPI(query string) []SearchResult {
-	resp, err := http.Get(fmt.Sprintf("https://pypi.org/pypi/%s/json", url.QueryEscape(query)))
+	resp, err := searchClient.Get(fmt.Sprintf("https://pypi.org/pypi/%s/json", url.QueryEscape(query)))
 	if err != nil {
 		return nil
 	}
@@ -191,7 +196,7 @@ func searchPyPI(query string) []SearchResult {
 }
 
 func searchConda(query string) []SearchResult {
-	resp, err := http.Get(fmt.Sprintf("https://api.anaconda.org/package/%s", url.QueryEscape(query)))
+	resp, err := searchClient.Get(fmt.Sprintf("https://api.anaconda.org/package/%s", url.QueryEscape(query)))
 	if err != nil {
 		return nil
 	}
@@ -221,7 +226,7 @@ func searchConda(query string) []SearchResult {
 }
 
 func searchRubyGems(query string, page, perPage int) ([]SearchResult, bool) {
-	resp, err := http.Get(fmt.Sprintf("https://rubygems.org/api/v1/search.json?query=%s&page=%d", url.QueryEscape(query), page))
+	resp, err := searchClient.Get(fmt.Sprintf("https://rubygems.org/api/v1/search.json?query=%s&page=%d", url.QueryEscape(query), page))
 	if err != nil {
 		return nil, false
 	}
@@ -255,7 +260,7 @@ func searchRubyGems(query string, page, perPage int) ([]SearchResult, bool) {
 func searchCargo(query string, page, perPage int) ([]SearchResult, bool) {
 	req, _ := http.NewRequest("GET", fmt.Sprintf("https://crates.io/api/v1/crates?q=%s&page=%d&per_page=%d", url.QueryEscape(query), page, perPage), nil)
 	req.Header.Set("User-Agent", "devbox/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := searchClient.Do(req)
 	if err != nil {
 		return nil, false
 	}
@@ -288,7 +293,7 @@ func searchCargo(query string, page, perPage int) ([]SearchResult, bool) {
 
 func searchNuGet(query string, page, perPage int) ([]SearchResult, bool) {
 	skip := (page - 1) * perPage
-	resp, err := http.Get(fmt.Sprintf("https://azuresearch-usnc.nuget.org/query?q=%s&skip=%d&take=%d", url.QueryEscape(query), skip, perPage))
+	resp, err := searchClient.Get(fmt.Sprintf("https://azuresearch-usnc.nuget.org/query?q=%s&skip=%d&take=%d", url.QueryEscape(query), skip, perPage))
 	if err != nil {
 		return nil, false
 	}

@@ -9,12 +9,13 @@ import (
 )
 
 type Limiter struct {
-	mu        sync.Mutex
-	visitors  map[string]*visitorWindow
-	limit     int
-	window    time.Duration
-	whitelist []*net.IPNet
-	blacklist []*net.IPNet
+	mu             sync.Mutex
+	visitors       map[string]*visitorWindow
+	limit          int
+	window         time.Duration
+	whitelist      []*net.IPNet
+	blacklist      []*net.IPNet
+	trustedProxies []*net.IPNet
 }
 
 type visitorWindow struct {
@@ -22,21 +23,27 @@ type visitorWindow struct {
 	lastSeen time.Time
 }
 
-func New(limit int, window time.Duration, whitelist []string, blacklist []string) *Limiter {
+func New(limit int, window time.Duration, whitelist []string, blacklist []string, trustedProxies []string) *Limiter {
 	wlNets := parseCIDRList(whitelist)
 	blNets := parseCIDRList(blacklist)
+	if len(trustedProxies) == 0 {
+		// Default: trust proxy headers only from a loopback reverse proxy.
+		trustedProxies = []string{"127.0.0.1/8", "::1/128"}
+	}
+	tpNets := parseCIDRList(trustedProxies)
 
 	return &Limiter{
-		visitors:  make(map[string]*visitorWindow),
-		limit:     limit,
-		window:    window,
-		whitelist: wlNets,
-		blacklist: blNets,
+		visitors:       make(map[string]*visitorWindow),
+		limit:          limit,
+		window:         window,
+		whitelist:      wlNets,
+		blacklist:      blNets,
+		trustedProxies: tpNets,
 	}
 }
 
 func (l *Limiter) Allow(r *http.Request) bool {
-	ip := extractIP(r)
+	ip := l.extractIP(r)
 	ipNet := parseIP(ip)
 
 	for _, cidr := range l.blacklist {
@@ -95,7 +102,11 @@ func parseCIDRList(list []string) []*net.IPNet {
 	var nets []*net.IPNet
 	for _, entry := range list {
 		if !strings.Contains(entry, "/") {
-			entry += "/32"
+			if strings.Contains(entry, ":") {
+				entry += "/128"
+			} else {
+				entry += "/32"
+			}
 		}
 		_, ipNet, err := net.ParseCIDR(entry)
 		if err == nil {
@@ -113,25 +124,48 @@ func parseIP(ipStr string) net.IP {
 	return ip
 }
 
-func extractIP(r *http.Request) string {
-	ip := r.Header.Get("X-Real-IP")
-	if ip != "" {
-		return ip
-	}
-	ip = r.Header.Get("X-Forwarded-For")
-	if ip != "" {
-		for i := 0; i < len(ip); i++ {
-			if ip[i] == ',' {
-				return ip[:i]
+// extractIP resolves the client IP for rate limiting. Proxy headers
+// (X-Real-IP / X-Forwarded-For) are only honored when the direct peer is
+// inside the configured trusted proxy CIDRs (loopback by default); directly
+// exposed clients can otherwise forge these headers to bypass or deflect
+// rate limiting.
+func (l *Limiter) extractIP(r *http.Request) string {
+	remoteIP := peerIP(r.RemoteAddr)
+	if remoteIP != nil && l.isTrustedProxy(remoteIP) {
+		if ip := r.Header.Get("X-Real-IP"); ip != "" {
+			return strings.TrimSpace(ip)
+		}
+		if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+			if idx := strings.IndexByte(ip, ','); idx > 0 {
+				ip = ip[:idx]
 			}
-		}
-		return ip
-	}
-	host := r.RemoteAddr
-	for i := len(host) - 1; i >= 0; i-- {
-		if host[i] == ':' {
-			return host[:i]
+			return strings.TrimSpace(ip)
 		}
 	}
-	return host
+	if remoteIP != nil {
+		return remoteIP.String()
+	}
+	return r.RemoteAddr
+}
+
+func (l *Limiter) isTrustedProxy(ip net.IP) bool {
+	for _, cidr := range l.trustedProxies {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// peerIP extracts the IP from a RemoteAddr string ("1.2.3.4:5678", "[::1]:80").
+func peerIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	return ip
 }

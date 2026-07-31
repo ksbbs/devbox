@@ -69,11 +69,11 @@ func (n *NuGetMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (n *NuGetMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	n.mu.RLock()
-	upstream := n.upstream
-	cacheTTL := n.cacheTTL
-	n.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		n.mu.RLock()
+		upstream := n.upstream
+		cacheTTL := n.cacheTTL
+		n.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/nuget")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

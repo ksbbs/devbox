@@ -69,10 +69,10 @@ func (q *QuayMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (q *QuayMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	q.mu.RLock()
-	upstream := q.upstream
-	q.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		q.mu.RLock()
+		upstream := q.upstream
+		q.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/quay")
 		cache.ProxyStream(w, r, upstream)
 	}

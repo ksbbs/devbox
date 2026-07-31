@@ -376,6 +376,10 @@ func (d *Dashboard) MirrorConfigHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (d *Dashboard) PublicConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if !d.checkAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	writeJSON(w, map[string]string{"publicUrl": d.publicURL})
 }
 
@@ -403,11 +407,17 @@ func (d *Dashboard) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.Token != d.authToken {
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(d.authToken)) != 1 {
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "ok", "token": req.Token})
+}
+
+// CheckAuth exposes the token check to other packages (e.g. server routes
+// that need the same auth policy as dashboard endpoints).
+func (d *Dashboard) CheckAuth(r *http.Request) bool {
+	return d.checkAuth(r)
 }
 
 func (d *Dashboard) RateLimitConfigHandler(w http.ResponseWriter, r *http.Request) {
