@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import { isLoggedIn, logout } from './api/client'
+import Logo from './components/Logo.vue'
 
 const router = useRouter()
 
@@ -10,49 +11,26 @@ function handleLogout() {
 }
 
 const navItems = [
-  { to: '/', label: 'Dashboard', code: 'dash' },
-  { to: '/mirrors', label: 'Mirrors', code: 'mir' },
-  { to: '/gitproxy', label: 'Git Proxy', code: 'git' },
-  { to: '/search', label: 'Search', code: 'find' },
-  { to: '/releases', label: 'Releases', code: 'rel' },
-  { to: '/settings', label: 'Settings', code: 'cfg' },
+  { to: '/', label: '仪表盘', code: 'dash' },
+  { to: '/mirrors', label: '镜像源', code: 'mir' },
+  { to: '/gitproxy', label: 'Git 代理', code: 'git' },
+  { to: '/search', label: '搜索', code: 'find' },
+  { to: '/releases', label: '发行版', code: 'rel' },
+  { to: '/settings', label: '设置', code: 'cfg' },
 ]
 </script>
 
 <template>
   <div class="min-h-screen text-slate-200">
-    <header class="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/95 backdrop-blur-sm">
+    <header class="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md">
       <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div class="flex items-center justify-between gap-4">
-          <router-link to="/" class="flex items-center gap-3 text-slate-100">
-            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <defs>
-                <linearGradient id="dbTop" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stop-color="#f2e4ff"/>
-                  <stop offset="100%" stop-color="#bd8bff"/>
-                </linearGradient>
-                <linearGradient id="dbLeft" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stop-color="#7c3aed"/>
-                  <stop offset="100%" stop-color="#9455f5"/>
-                </linearGradient>
-                <linearGradient id="dbRight" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#6528d4"/>
-                  <stop offset="100%" stop-color="#43158f"/>
-                </linearGradient>
-              </defs>
-              <polygon points="12,2 19.75,6.75 12,11.5 4.25,6.75" fill="url(#dbTop)"/>
-              <polygon points="12,11.5 19.75,6.75 19.75,16.25 12,21" fill="url(#dbRight)"/>
-              <polygon points="12,11.5 12,21 4.25,16.25 4.25,6.75" fill="url(#dbLeft)"/>
-              <polygon points="12,4 16.5,6.4 12,8.8 7.5,6.4" fill="#ffffff" opacity="0.16"/>
-              <g stroke="#67e8f9" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="13.25,13.75 15.25,15.25 13.25,16.75"/>
-                <line x1="16.25" y1="16.75" x2="17.75" y2="16.75"/>
-              </g>
-            </svg>
+          <router-link to="/" class="group flex items-center gap-3">
+            <Logo class="transition-[filter] duration-300 group-hover:drop-shadow-[0_0_10px_rgba(124,58,237,0.7)]" />
             <span class="text-sm font-semibold tracking-wide text-slate-100">devbox</span>
-            <span class="hidden text-sm text-slate-500 sm:inline">mirror proxy console</span>
+            <span class="hidden text-sm text-slate-500 sm:inline">镜像代理控制台</span>
           </router-link>
-          <button v-if="isLoggedIn()" @click="handleLogout" class="btn lg:hidden">logout</button>
+          <button v-if="isLoggedIn()" @click="handleLogout" class="btn lg:hidden">退出</button>
         </div>
 
         <nav class="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0">
@@ -66,7 +44,7 @@ const navItems = [
             <span class="text-[10px] uppercase tracking-widest text-slate-600">{{ item.code }}</span>
             <span>{{ item.label }}</span>
           </router-link>
-          <button v-if="isLoggedIn()" @click="handleLogout" class="btn ml-2 hidden lg:inline-flex">logout</button>
+          <button v-if="isLoggedIn()" @click="handleLogout" class="btn ml-2 hidden lg:inline-flex">退出</button>
         </nav>
       </div>
     </header>
@@ -83,38 +61,63 @@ const navItems = [
 
 <style>
 .nav-link {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   border: 1px solid transparent;
+  border-radius: 0.375rem;
   padding: 0.45rem 0.75rem;
   color: #94a3b8;
   font-size: 0.78rem;
   line-height: 1rem;
   text-decoration: none;
-  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
   white-space: nowrap;
 }
 
 .nav-link:hover {
-  border-color: rgba(34, 211, 238, 0.35);
+  border-color: rgba(103, 232, 249, 0.28);
   color: #cbd5e1;
-  background: rgba(15, 23, 42, 0.8);
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.09), rgba(2, 6, 23, 0.35));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .nav-link.active {
-  border-color: rgba(34, 211, 238, 0.65);
-  color: #67e8f9;
-  background: rgba(8, 47, 73, 0.35);
+  border-color: rgba(189, 139, 255, 0.3);
+  color: #f2e4ff;
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.14), rgba(2, 6, 23, 0.3));
+  box-shadow: inset 0 1px 0 rgba(189, 139, 255, 0.12), inset 0 -2px 0 0 rgba(124, 58, 237, 0.35);
+}
+
+.nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.2rem;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, #7c3aed, #67e8f9);
+  box-shadow: 0 0 10px rgba(124, 58, 237, 0.8);
+}
+
+.nav-link.active .text-\[10px\] {
+  color: #bd8bff;
 }
 
 .page-enter-active,
 .page-leave-active {
-  transition: opacity 120ms ease;
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
-.page-enter-from,
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
 .page-leave-to {
   opacity: 0;
+  transform: translateY(-2px);
 }
 </style>

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { getMirrorConfig, updateMirrorConfig } from '../api/client'
+import StatusDot from '../components/StatusDot.vue'
+import EmptyState from '../components/EmptyState.vue'
+import Banner from '../components/Banner.vue'
 
 const mirrors = ref<any[]>([])
 const loading = ref(true)
@@ -52,37 +55,37 @@ function flashSaved(name: string) {
 
 function ttlText(value: number | string) {
   const ttl = Number(value || 0)
-  if (!ttl) return 'never'
-  if (ttl >= 86400) return `${Math.round(ttl / 86400)}d`
-  if (ttl >= 3600) return `${Math.round(ttl / 3600)}h`
-  return `${ttl}s`
+  if (!ttl) return '永不过期'
+  if (ttl >= 86400) return `${Math.round(ttl / 86400)} 天`
+  if (ttl >= 3600) return `${Math.round(ttl / 3600)} 小时`
+  return `${ttl} 秒`
 }
 </script>
 
 <template>
   <div>
     <section class="page-header">
-      <span class="page-kicker">config</span>
-      <h1 class="page-title">Mirrors</h1>
+      <span class="page-kicker">配置</span>
+      <h1 class="page-title">镜像源</h1>
       <p class="page-subtitle">启停镜像服务并修改上游地址，保存后立即生效。</p>
     </section>
 
-    <div v-if="loading" class="panel-pad text-sm text-cyan-400">loading mirrors...</div>
-
-    <div v-if="errorMsg" class="mb-4 border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-300">
-      {{ errorMsg }}
+    <div v-if="loading" class="glass flex items-center gap-2 p-4 text-sm text-cyan-400">
+      <StatusDot tone="accent" pulse /> 正在加载镜像配置...
     </div>
+
+    <Banner v-if="errorMsg" :message="errorMsg" />
 
     <div v-if="!loading" class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
-            <th>mirror</th>
-            <th>state</th>
-            <th>cache ttl</th>
-            <th>upstream</th>
-            <th>action</th>
-            <th>save</th>
+            <th>镜像</th>
+            <th>状态</th>
+            <th>缓存 TTL</th>
+            <th>上游地址</th>
+            <th>操作</th>
+            <th>保存</th>
           </tr>
         </thead>
         <tbody>
@@ -93,7 +96,8 @@ function ttlText(value: number | string) {
             </td>
             <td>
               <span class="tag" :class="m.enabled ? 'tag-ok' : 'tag-off'">
-                {{ m.enabled ? 'enabled' : 'disabled' }}
+                <StatusDot :tone="m.enabled ? 'ok' : 'off'" />
+                {{ m.enabled ? '已启用' : '已停用' }}
               </span>
             </td>
             <td class="text-slate-400">{{ ttlText(m.cacheTTL) }}</td>
@@ -102,23 +106,23 @@ function ttlText(value: number | string) {
                 v-model="m.upstream"
                 class="input w-full"
                 :disabled="updating === m.name"
-                placeholder="Upstream URL"
+                placeholder="上游地址"
                 @change="updateUpstream(m)"
                 @keydown.enter="updateUpstream(m)"
               />
             </td>
             <td>
               <button class="btn" :class="m.enabled ? 'btn-danger' : 'btn-primary'" :disabled="updating === m.name" @click="toggleMirror(m)">
-                {{ m.enabled ? 'disable' : 'enable' }}
+                {{ m.enabled ? '停用' : '启用' }}
               </button>
             </td>
             <td class="text-xs" :class="saved === m.name ? 'text-emerald-300' : 'text-slate-600'">
-              {{ saved === m.name ? 'saved' : updating === m.name ? 'saving' : '-' }}
+              {{ saved === m.name ? '已保存' : updating === m.name ? '保存中' : '-' }}
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="!mirrors.length" class="p-6 text-center text-sm text-slate-500">暂无镜像配置。</div>
+      <EmptyState v-if="!mirrors.length" message="暂无镜像配置。" />
     </div>
   </div>
 </template>
