@@ -69,10 +69,10 @@ func (h *HfMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (h *HfMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	h.mu.RLock()
-	upstream := h.upstream
-	h.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		h.mu.RLock()
+		upstream := h.upstream
+		h.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/hf")
 		// HuggingFace files can be large (model weights), use streaming proxy
 		cache.ProxyStream(w, r, upstream)

@@ -1,17 +1,21 @@
 import axios from "axios";
-import router from "../router";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
 });
 
-// 401 interceptor: clear token (router guard handles redirect)
+// 401 interceptor: clear token and bounce to the login page.
+// Uses a full page redirect (instead of importing the router) to avoid
+// the circular import client.ts <-> router/index.ts.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem("devbox_token");
       setToken("");
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   },
@@ -29,7 +33,6 @@ export function initAuth() {
 export function logout() {
   localStorage.removeItem("devbox_token");
   setToken("");
-  router.push("/login");
 }
 
 export function isLoggedIn(): boolean {
@@ -103,7 +106,7 @@ export async function searchMirrors(
   const params: Record<string, string> = { q };
   if (registry) params.registry = registry;
   if (page) params.page = String(page);
-  if (perPage) params.perPage = String(perPage);
+  if (perPage) params.per_page = String(perPage);
   return api.get("/search", { params }).then((r) => r.data);
 }
 

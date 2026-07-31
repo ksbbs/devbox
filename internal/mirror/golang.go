@@ -69,11 +69,11 @@ func (g *GolangMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (g *GolangMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	g.mu.RLock()
-	upstream := g.upstream
-	cacheTTL := g.cacheTTL
-	g.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		g.mu.RLock()
+		upstream := g.upstream
+		cacheTTL := g.cacheTTL
+		g.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/golang")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

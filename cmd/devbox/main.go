@@ -13,8 +13,6 @@ import (
 	"devbox/internal/config"
 	"devbox/internal/mirror"
 	"devbox/internal/server"
-
-	_ "devbox/internal/mirror"
 )
 
 func main() {

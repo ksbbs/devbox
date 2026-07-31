@@ -1,5 +1,13 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { isLoggedIn, logout } from './api/client'
+
+const router = useRouter()
+
+function handleLogout() {
+  logout()
+  router.push('/login')
+}
 
 const navItems = [
   { to: '/', label: 'Dashboard', code: 'dash' },
@@ -20,7 +28,7 @@ const navItems = [
             <span class="border border-cyan-500/50 bg-cyan-950/30 px-2 py-1 text-xs font-semibold text-cyan-300">devbox</span>
             <span class="text-sm text-slate-500">mirror proxy console</span>
           </router-link>
-          <button v-if="isLoggedIn()" @click="logout" class="btn lg:hidden">logout</button>
+          <button v-if="isLoggedIn()" @click="handleLogout" class="btn lg:hidden">logout</button>
         </div>
 
         <nav class="flex items-center gap-1 overflow-x-auto pb-1 lg:pb-0">
@@ -34,7 +42,7 @@ const navItems = [
             <span class="text-[10px] uppercase tracking-widest text-slate-600">{{ item.code }}</span>
             <span>{{ item.label }}</span>
           </router-link>
-          <button v-if="isLoggedIn()" @click="logout" class="btn ml-2 hidden lg:inline-flex">logout</button>
+          <button v-if="isLoggedIn()" @click="handleLogout" class="btn ml-2 hidden lg:inline-flex">logout</button>
         </nav>
       </div>
     </header>

@@ -69,10 +69,10 @@ func (g *GhcrMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (g *GhcrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	g.mu.RLock()
-	upstream := g.upstream
-	g.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		g.mu.RLock()
+		upstream := g.upstream
+		g.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/ghcr")
 		cache.ProxyStream(w, r, upstream)
 	}

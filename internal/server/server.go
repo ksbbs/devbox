@@ -83,6 +83,7 @@ func New(cfg *config.Config, configPath string, frontDir string) (*Server, error
 	}
 
 	cache := mirror.NewCache(cfg.Cache.Dir, cfg.Cache.MaxSizeBytes)
+	cache.ScanSize()
 
 	gp := gitproxy.New(
 		cfg.GitProxy.GithubUpstream,
@@ -153,8 +154,10 @@ func (s *Server) Start() error {
 	}
 
 	// Git proxy routes
-	mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
-	mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
+	if s.cfg.GitProxy.Enabled {
+		mux.HandleFunc("/gh/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
+		mux.HandleFunc("/gl/", s.wrapWithStats("gitproxy", s.gitProxyHandler))
+	}
 
 	// Dashboard API routes
 	mux.HandleFunc("/api/status", s.dash.StatusHandler)
@@ -165,7 +168,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config/public", s.dash.PublicConfigHandler)
 	mux.HandleFunc("/api/auth/login", s.dash.LoginHandler)
 	mux.HandleFunc("/api/auth/check", s.dash.AuthCheckHandler)
-	mux.HandleFunc("/api/search", s.search.Search)
+	mux.HandleFunc("/api/search", s.authWrapped(s.search.Search))
 	mux.HandleFunc("/api/release-sources", s.dash.ReleaseSourcesHandler)
 	mux.HandleFunc("/api/release-sources/", s.dash.ReleaseSourceHandler)
 	mux.HandleFunc("/api/release-download", s.dash.ReleaseDownloadHandler)
@@ -299,12 +302,12 @@ func (s *Server) registryV2Handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("registry token error", "registry", registryName, "error", err)
 		// Try without token (some repos are public)
-		s.proxyRegistryRequest(w, r, target, "")
+		s.proxyRegistryRequest(w, r, target, "", 0)
 		return
 	}
 
 	slog.Info("registry request", "method", r.Method, "path", path, "target", target, "token_prefix", token[:min(10, len(token))])
-	s.proxyRegistryRequest(w, r, target, token)
+	s.proxyRegistryRequest(w, r, target, token, 0)
 }
 
 func newRegistryClient() *http.Client {
@@ -323,7 +326,15 @@ func newRegistryClient() *http.Client {
 	}
 }
 
-func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, target string, token string) {
+func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, target string, token string, depth int) {
+	// Guard against unbounded 401 retry recursion (e.g. private repos with
+	// wrong scopes) which would otherwise loop forever against the upstream.
+	if depth > 2 {
+		slog.Warn("registry auth retry loop detected, aborting", "path", r.URL.Path)
+		http.Error(w, "upstream auth loop", http.StatusUnauthorized)
+		return
+	}
+
 	upstreamReq, err := http.NewRequest(r.Method, target, r.Body)
 	if err != nil {
 		http.Error(w, "request error", http.StatusInternalServerError)
@@ -372,7 +383,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 		resp.Body.Close()
 		// Retry without token — let upstream give fresh 401
 		slog.Warn("registry token rejected, retrying without token")
-		s.proxyRegistryRequest(w, r, target, "")
+		s.proxyRegistryRequest(w, r, target, "", depth+1)
 		return
 	}
 
@@ -392,7 +403,7 @@ func (s *Server) proxyRegistryRequest(w http.ResponseWriter, r *http.Request, ta
 			if err == nil && newToken != "" {
 				resp.Body.Close()
 				slog.Info("registry got new token, retrying", "scope", scope)
-				s.proxyRegistryRequest(w, r, target, newToken)
+				s.proxyRegistryRequest(w, r, target, newToken, depth+1)
 				return
 			}
 		}
@@ -600,6 +611,17 @@ func (s *Server) mirrorEnabledWrapper(m mirror.Mirror, next http.HandlerFunc) ht
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !m.IsEnabled() {
 			http.Error(w, "mirror disabled", http.StatusServiceUnavailable)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// authWrapped applies the same token policy as dashboard endpoints.
+func (s *Server) authWrapped(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.dash.CheckAuth(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -893,7 +915,11 @@ func logMiddleware(next http.Handler, accessLog bool) http.Handler {
 func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
+		// Login is exempted from the blanket /api/ pass-through so brute
+		// force attempts are throttled like everything else.
+		if path == "/api/auth/login" {
+			// no-op: fall through to rate limiting
+		} else if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v2/") ||
 			strings.HasPrefix(path, "/token") || path == "/" || path == "/health" ||
 			strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js") ||
 			strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {

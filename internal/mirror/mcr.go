@@ -69,10 +69,10 @@ func (m *McrMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (m *McrMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	m.mu.RLock()
-	upstream := m.upstream
-	m.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		m.mu.RLock()
+		upstream := m.upstream
+		m.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/mcr")
 		cache.ProxyStream(w, r, upstream)
 	}

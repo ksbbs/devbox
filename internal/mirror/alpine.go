@@ -69,10 +69,10 @@ func (a *AlpineMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (a *AlpineMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	a.mu.RLock()
-	upstream := a.upstream
-	a.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		a.mu.RLock()
+		upstream := a.upstream
+		a.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/alpine")
 		cache.ProxyStream(w, r, upstream)
 	}

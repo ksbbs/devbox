@@ -16,6 +16,7 @@ const routes = [
   { path: '/search', component: Search },
   { path: '/releases', component: Releases },
   { path: '/settings', component: Settings },
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({
@@ -31,7 +32,7 @@ router.beforeEach(async (to) => {
     authChecked = true
   }
 
-  if (to.meta.noAuth) return true
+  if (to.meta.noAuth) return isLoggedIn() ? '/' : true
 
   if (isLoggedIn()) return true
 

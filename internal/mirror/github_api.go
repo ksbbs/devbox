@@ -69,11 +69,11 @@ func (g *GithubAPIMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (g *GithubAPIMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	g.mu.RLock()
-	upstream := g.upstream
-	cacheTTL := g.cacheTTL
-	g.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		g.mu.RLock()
+		upstream := g.upstream
+		cacheTTL := g.cacheTTL
+		g.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/ghapi")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

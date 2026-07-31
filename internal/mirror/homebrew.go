@@ -69,10 +69,10 @@ func (h *HomebrewMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (h *HomebrewMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	h.mu.RLock()
-	upstream := h.upstream
-	h.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		h.mu.RLock()
+		upstream := h.upstream
+		h.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/homebrew")
 		cache.ProxyStream(w, r, upstream)
 	}

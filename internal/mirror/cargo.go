@@ -69,11 +69,11 @@ func (c *CargoMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (c *CargoMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	c.mu.RLock()
-	upstream := c.upstream
-	cacheTTL := c.cacheTTL
-	c.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		c.mu.RLock()
+		upstream := c.upstream
+		cacheTTL := c.cacheTTL
+		c.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/cargo")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

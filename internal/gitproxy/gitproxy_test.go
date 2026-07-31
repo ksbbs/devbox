@@ -31,6 +31,9 @@ func TestGitProxyGitHubClone(t *testing.T) {
 
 func TestGitProxyGitHubRaw(t *testing.T) {
 	raw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/repo/branch/file.go" {
+			t.Fatalf("expected path /user/repo/branch/file.go, got %s", r.URL.Path)
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("raw-file-content"))
@@ -53,6 +56,9 @@ func TestGitProxyGitHubRaw(t *testing.T) {
 
 func TestGitProxyGitHubBlobRedirect(t *testing.T) {
 	raw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/repo/branch/file.go" {
+			t.Fatalf("expected path /user/repo/branch/file.go, got %s", r.URL.Path)
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("blob-content"))

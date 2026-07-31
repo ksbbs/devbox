@@ -95,7 +95,11 @@ func parseCIDRList(list []string) []*net.IPNet {
 	var nets []*net.IPNet
 	for _, entry := range list {
 		if !strings.Contains(entry, "/") {
-			entry += "/32"
+			if strings.Contains(entry, ":") {
+				entry += "/128"
+			} else {
+				entry += "/32"
+			}
 		}
 		_, ipNet, err := net.ParseCIDR(entry)
 		if err == nil {
@@ -114,24 +118,37 @@ func parseIP(ipStr string) net.IP {
 }
 
 func extractIP(r *http.Request) string {
-	ip := r.Header.Get("X-Real-IP")
-	if ip != "" {
-		return ip
-	}
-	ip = r.Header.Get("X-Forwarded-For")
-	if ip != "" {
-		for i := 0; i < len(ip); i++ {
-			if ip[i] == ',' {
-				return ip[:i]
+	// Only trust proxy headers (X-Real-IP / X-Forwarded-For) when the direct
+	// peer is a loopback address, i.e. traffic arrives via a local reverse
+	// proxy. Directly exposed clients can otherwise forge these headers to
+	// bypass or deflect rate limiting.
+	remoteIP := peerIP(r.RemoteAddr)
+	if remoteIP != nil && remoteIP.IsLoopback() {
+		if ip := r.Header.Get("X-Real-IP"); ip != "" {
+			return strings.TrimSpace(ip)
+		}
+		if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+			if idx := strings.IndexByte(ip, ','); idx > 0 {
+				ip = ip[:idx]
 			}
-		}
-		return ip
-	}
-	host := r.RemoteAddr
-	for i := len(host) - 1; i >= 0; i-- {
-		if host[i] == ':' {
-			return host[:i]
+			return strings.TrimSpace(ip)
 		}
 	}
-	return host
+	if remoteIP != nil {
+		return remoteIP.String()
+	}
+	return r.RemoteAddr
+}
+
+// peerIP extracts the IP from a RemoteAddr string ("1.2.3.4:5678", "[::1]:80").
+func peerIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	return ip
 }

@@ -91,7 +91,7 @@ const capabilities = [
         <div class="grid gap-4">
           <label class="grid gap-1">
             <span class="text-xs uppercase tracking-[0.16em] text-slate-500">max requests per rolling window</span>
-            <input v-model="rlRate" type="number" min="1" class="input w-full" />
+            <input v-model.number="rlRate" type="number" min="1" class="input w-full" />
           </label>
           <label class="grid gap-1">
             <span class="text-xs uppercase tracking-[0.16em] text-slate-500">rolling window</span>
@@ -140,7 +140,7 @@ const capabilities = [
             </div>
             <div class="flex justify-between gap-4">
               <dt class="text-slate-500">source</dt>
-              <dd><a href="https://github.com/ksbbs/devbox" target="_blank" class="muted-link">github</a></dd>
+              <dd><a href="https://github.com/wha7ev9r/devbox" target="_blank" class="muted-link">github</a></dd>
             </div>
           </dl>
         </section>

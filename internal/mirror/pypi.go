@@ -69,11 +69,11 @@ func (p *PypiMirror) ApplyConfig(cfg config.MirrorConfig) {
 }
 
 func (p *PypiMirror) ProxyHandler(cache *Cache) http.HandlerFunc {
-	p.mu.RLock()
-	upstream := p.upstream
-	cacheTTL := p.cacheTTL
-	p.mu.RUnlock()
 	return func(w http.ResponseWriter, r *http.Request) {
+		p.mu.RLock()
+		upstream := p.upstream
+		cacheTTL := p.cacheTTL
+		p.mu.RUnlock()
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/pypi")
 		cache.ProxyHTTP(w, r, upstream, cacheTTL)
 	}

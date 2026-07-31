@@ -53,13 +53,16 @@ func (gp *GitProxy) Handler(w http.ResponseWriter, r *http.Request) {
 
 func (gp *GitProxy) proxyGitHub(w http.ResponseWriter, r *http.Request, path string) {
 	if isBlobRequest(path) {
-		path = strings.Replace(path, "/blob/", "/raw/", 1)
+		// /user/repo/blob/branch/file → raw.githubusercontent.com/user/repo/branch/file
+		path = strings.Replace(path, "/blob/", "/", 1)
 		gp.proxyRaw(w, r, path)
 		return
 	}
 	if isArchiveRequest(path) {
 		gp.proxyArchive(w, r, gp.githubUpstream, path)
 	} else if isRawRequest(path) {
+		// /user/repo/raw/branch/file → raw.githubusercontent.com/user/repo/branch/file
+		path = strings.Replace(path, "/raw/", "/", 1)
 		gp.proxyRaw(w, r, path)
 	} else {
 		gp.proxySmartHTTP(w, r, gp.githubUpstream, path)
