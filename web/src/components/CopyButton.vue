@@ -16,6 +16,7 @@ const copied = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 async function copy() {
+  let ok = true
   try {
     await navigator.clipboard.writeText(props.text)
   } catch {
@@ -23,9 +24,10 @@ async function copy() {
     el.value = props.text
     document.body.appendChild(el)
     el.select()
-    document.execCommand('copy')
+    ok = document.execCommand('copy')
     document.body.removeChild(el)
   }
+  if (!ok) return
   copied.value = true
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => (copied.value = false), 1500)

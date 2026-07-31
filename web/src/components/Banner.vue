@@ -14,6 +14,8 @@ defineSlots<{
 <template>
   <div
     v-if="message || $slots.default"
+    role="status"
+    :aria-live="tone === 'error' ? 'assertive' : 'polite'"
     class="mb-4 flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm"
     :class="{
       'border-red-500/40 bg-red-950/25 text-red-300': tone === 'error',

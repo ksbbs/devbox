@@ -108,7 +108,7 @@ function ttlText(value: number | string) {
                 :disabled="updating === m.name"
                 placeholder="上游地址"
                 @change="updateUpstream(m)"
-                @keydown.enter="updateUpstream(m)"
+                @keydown.enter="($event.target as HTMLInputElement).blur()"
               />
             </td>
             <td>

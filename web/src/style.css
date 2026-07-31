@@ -24,7 +24,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(900px 420px at 15% -10%, rgba(124, 58, 237, 0.09), transparent 65%),
+    radial-gradient(900px 420px at 15% -10%, color-mix(in srgb, var(--brand-1) 9%, transparent), transparent 65%),
     radial-gradient(900px 420px at 85% -10%, rgba(34, 211, 238, 0.07), transparent 65%),
     linear-gradient(rgba(148, 163, 184, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.025) 1px, transparent 1px),
@@ -54,7 +54,7 @@ button:disabled {
 }
 
 ::selection {
-  background: rgba(124, 58, 237, 0.4);
+  background: color-mix(in srgb, var(--brand-1) 40%, transparent);
   color: #f8fafc;
 }
 
@@ -65,7 +65,7 @@ button:disabled {
   border: 1px solid var(--glass-border);
   border-radius: 0.625rem;
   background:
-    radial-gradient(130% 70% at 50% 0%, rgba(124, 58, 237, 0.07), transparent 60%),
+    radial-gradient(130% 70% at 50% 0%, color-mix(in srgb, var(--brand-1) 7%, transparent), transparent 60%),
     linear-gradient(180deg, rgba(148, 163, 184, 0.08), rgba(2, 6, 23, 0.42) 48%);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
@@ -83,7 +83,7 @@ button:disabled {
       inset 0 1px 0 rgba(255, 255, 255, 0.1),
       inset 0 0 28px rgba(103, 232, 249, 0.03),
       0 10px 36px rgba(0, 0, 0, 0.45),
-      0 0 26px rgba(124, 58, 237, 0.14);
+      0 0 26px color-mix(in srgb, var(--brand-1) 14%, transparent);
   }
 }
 
@@ -102,7 +102,7 @@ button:disabled {
 
   .page-kicker {
     @apply text-xs font-medium uppercase tracking-[0.28em];
-    background: linear-gradient(90deg, #bd8bff, #67e8f9);
+    background: linear-gradient(90deg, var(--brand-3), var(--accent));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -116,13 +116,7 @@ button:disabled {
     @apply text-sm text-slate-500;
   }
 
-  .panel {
-    @apply glass;
-  }
 
-  .panel-pad {
-    @apply glass p-4;
-  }
 
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition-all duration-150 hover:border-cyan-400/60 hover:bg-slate-800/90 hover:text-cyan-200 disabled:opacity-50 disabled:hover:border-slate-600/60 disabled:hover:text-slate-300;
@@ -155,12 +149,12 @@ button:disabled {
 
   .btn-brand {
     @apply border-violet-400/50 text-violet-200 hover:border-violet-300/80 hover:bg-slate-900/80 hover:text-violet-100;
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.22), rgba(148, 85, 245, 0.08));
-    box-shadow: inset 0 1px 0 rgba(189, 139, 255, 0.16), 0 0 18px rgba(124, 58, 237, 0.1);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--brand-1) 22%, transparent), color-mix(in srgb, var(--brand-2) 8%, transparent));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brand-3) 16%, transparent), 0 0 18px color-mix(in srgb, var(--brand-1) 10%, transparent);
   }
 
   .btn-brand:not(:disabled):hover {
-    box-shadow: inset 0 1px 0 rgba(189, 139, 255, 0.22), 0 0 22px rgba(124, 58, 237, 0.2);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brand-3) 22%, transparent), 0 0 22px color-mix(in srgb, var(--brand-1) 20%, transparent);
   }
 
   .input {
@@ -236,7 +230,7 @@ button:disabled {
 
   .tag-brand {
     @apply border-violet-500/40 text-violet-300;
-    background: rgba(124, 58, 237, 0.1);
+    background: color-mix(in srgb, var(--brand-1) 10%, transparent);
   }
 
   .code-line {

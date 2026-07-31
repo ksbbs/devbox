@@ -85,9 +85,9 @@ const navItems = [
 
 .nav-link.active {
   border-color: rgba(189, 139, 255, 0.3);
-  color: #f2e4ff;
-  background: linear-gradient(180deg, rgba(124, 58, 237, 0.14), rgba(2, 6, 23, 0.3));
-  box-shadow: inset 0 1px 0 rgba(189, 139, 255, 0.12), inset 0 -2px 0 0 rgba(124, 58, 237, 0.35);
+  color: var(--brand-light);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand-1) 14%, transparent), rgba(2, 6, 23, 0.3));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brand-3) 12%, transparent), inset 0 -2px 0 0 color-mix(in srgb, var(--brand-1) 35%, transparent);
 }
 
 .nav-link.active::after {
@@ -98,12 +98,12 @@ const navItems = [
   bottom: 0.2rem;
   height: 2px;
   border-radius: 1px;
-  background: linear-gradient(90deg, #7c3aed, #67e8f9);
-  box-shadow: 0 0 10px rgba(124, 58, 237, 0.8);
+  background: linear-gradient(90deg, var(--brand-1), var(--accent));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--brand-1) 80%, transparent);
 }
 
 .nav-link.active .text-\[10px\] {
-  color: #bd8bff;
+  color: var(--brand-3);
 }
 
 .page-enter-active,

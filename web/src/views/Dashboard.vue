@@ -139,6 +139,14 @@ const totalTrend = computed(() => {
   return hours.value.map(h => sums.get(h) || 0)
 })
 
+const activeMirrors = computed(() => {
+  if (!hourlyTraffic.value.length) {
+    return traffic.value.filter(item => metricOf(item) > 0).length
+  }
+  const names = new Set(hourlyTraffic.value.filter(item => metricOf(item) > 0).map(item => item.mirror || 'unknown'))
+  return names.size
+})
+
 const trendStats = computed(() => {
   const values = totalTrend.value
   if (!values.length) return { total: 0, peak: 0, avg: 0, active: 0 }
@@ -148,8 +156,18 @@ const trendStats = computed(() => {
     total,
     peak,
     avg: total / values.length,
-    active: trendRows.value.filter(r => r.total > 0).length,
+    active: activeMirrors.value,
   }
+})
+
+const peakPos = computed(() => {
+  const values = totalTrend.value
+  if (!values.length) return null
+  const idx = peakIndex(values)
+  const x = values.length === 1 ? 100 : (idx / (values.length - 1)) * 100
+  const max = Math.max(...values, 1)
+  const y = 30 - (values[idx] / max) * 26
+  return { x, y }
 })
 
 onMounted(async () => {
@@ -162,7 +180,7 @@ onMounted(async () => {
   ])
 
   if (statusRes.status === 'fulfilled') mirrors.value = Array.isArray(statusRes.value) ? statusRes.value : []
-  else errorMsg.value = 'Failed to load mirror status'
+  else errorMsg.value = '加载镜像状态失败'
   if (trafficRes.status === 'fulfilled') traffic.value = Array.isArray(trafficRes.value) ? trafficRes.value : []
   if (hourlyRes.status === 'fulfilled') hourlyTraffic.value = Array.isArray(hourlyRes.value) ? hourlyRes.value : []
   if (logsRes.status === 'fulfilled') logs.value = Array.isArray(logsRes.value) ? logsRes.value : []
@@ -174,10 +192,20 @@ async function switchChartMode() {
   chartMode.value = chartMode.value === 'requests' ? 'bandwidth' : 'requests'
 }
 
+let granularityRequestId = 0
+
 async function switchGranularity(level: 'hourly' | 'daily' | 'weekly') {
-  chartGranularity.value = level
-  const data = await getTraffic(undefined, undefined, level)
-  hourlyTraffic.value = Array.isArray(data) ? data : []
+  const requestId = ++granularityRequestId
+  try {
+    const data = await getTraffic(undefined, undefined, level)
+    if (requestId !== granularityRequestId) return
+    hourlyTraffic.value = Array.isArray(data) ? data : []
+    chartGranularity.value = level
+  } catch (e: any) {
+    if (requestId === granularityRequestId) {
+      errorMsg.value = e.response?.statusText || '流量数据加载失败'
+    }
+  }
 }
 
 async function refreshLogs() {
@@ -402,7 +430,7 @@ function peakIndex(values: number[]) {
               <line v-for="gy in [0, 8, 16, 24, 32]" :key="gy" x1="0" :y1="gy" x2="100" :y2="gy" stroke="rgba(148,163,184,0.09)" stroke-width="0.2" vector-effect="non-scaling-stroke" />
               <polygon :points="bigAreaPoints(totalTrend)" fill="url(#sparkFill)" />
               <polyline :points="bigChartPoints(totalTrend)" fill="none" stroke="url(#sparkStroke)" stroke-width="0.45" vector-effect="non-scaling-stroke" />
-              <circle :cx="peakIndex(totalTrend) >= 0 ? (peakIndex(totalTrend) / (totalTrend.length - 1)) * 100 : 0" cy="2" r="0.9" fill="#67e8f9" />
+              <circle v-if="peakPos" :cx="peakPos.x" :cy="peakPos.y" r="0.9" fill="#67e8f9" />
             </svg>
             <div class="pointer-events-none absolute left-0 top-0 h-full w-full" />
           </div>

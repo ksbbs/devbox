@@ -47,7 +47,7 @@ async function saveRateLimit() {
     rlMsg.value = 'saved'
     setTimeout(() => rlMsg.value = '', 1500)
   } catch (e: any) {
-    rlMsg.value = e.response?.statusText || 'save failed'
+    rlMsg.value = e.response?.statusText || '保存失败'
   }
   rlSaving.value = false
 }

@@ -12,7 +12,7 @@
 
 - Vue 3.5（`<script setup>` + TS）+ Vue Router 4 + Vite 8 + Tailwind CSS 4
 - **无 UI 组件库、无 icon 库、无动画库** —— 全部手写 SVG / Tailwind 原子类
-- 代码位置：`web/src/views/*.vue`（7 个页面）、`web/src/components/StatusCard.vue`、`web/src/style.css`、`web/src/api/client.ts`、`web/src/router/index.ts`、`web/src/App.vue`
+- 代码位置：`web/src/views/*.vue`（7 个页面）、`web/src/components/*.vue`、`web/src/style.css`、`web/src/api/client.ts`、`web/src/router/index.ts`、`web/src/App.vue`
 - **不要改动后端 API 契约**；前端参数名须与后端 JSON tag 对齐（例如搜索接口是 `has_more`、`per_page`，不是 camelCase）
 - 不新增任何 npm 依赖
 - 构建验证：在 `web/` 目录下 `pnpm run build`（含 vue-tsc 类型检查）
@@ -40,7 +40,7 @@
 
 ## 设计方向（必须遵守）
 
-1. **延续暗色终端极客风**，但提升精致度：统一卡片、面板、表格、表单的视觉语言（spacing 刻度、圆角、边框、hover/active/disabled 状态一致）
+1. **目标风格为液态玻璃（liquid glass）**：在暗色终端极客基调上，采用半透明玻璃卡片（高光描边、顶部紫/青辉光、backdrop-blur）统一卡片、面板、表格、表单的视觉语言（spacing 刻度、圆角、边框、hover/active/disabled 状态一致）
 2. **品牌色系统**：紫为主色、青为强调色、slate 做文字层级；交互元素（链接、激活导航、主按钮）统一用 cyan/紫渐变，保证 WCAG AA 对比度
 3. **导航**：顶部 sticky header；移动端（375px）导航可用；logo 用新 SVG 立方体 + "devbox" 字标
 4. **表格**：统一 `data-table` 样式（表头小号大写、行分隔、状态 tag、空态/加载态）
@@ -61,7 +61,7 @@
 1. 先读代码：全部 views、components、style.css、api/client.ts、router/index.ts、index.html；用 `web/../view.png`（或 agent-vision 分析）了解信息架构
 2. 拟定设计系统（色板/间距/圆角/组件清单）摘要，**先向用户确认方向**，再动手写代码
 3. 逐页重构；每个页面完成后 `pnpm run build` 验证类型与构建
-4. 全部完成后启动本地 dev（`nohup pnpm run dev > /tmp/dev.log 2>&1 &`，后台进程），用 Edge headless 截图 + agent-vision 逐页检查视觉效果并修复；完成后停掉后台进程
+4. 全部完成后启动本地 dev（`nohup pnpm run dev > /tmp/dev.log 2>&1 &`，后台进程；该写法需在 Git Bash 中执行，PowerShell 用 `Start-Process` 或 `Start-Job`），用 Edge headless 截图 + agent-vision 逐页检查视觉效果并修复；完成后停掉后台进程
 5. 最终 `pnpm run build` 通过后：新建分支 `refactor/frontend-redesign`，提交，推送，创建 PR（PR 描述写明设计变更点）；PR 创建后等用户审查，**不要自行合并**
 6. 若涉及 README 功能描述变化，同步更新 README.md
 

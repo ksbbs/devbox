@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import StatusDot from './StatusDot.vue'
 
-defineProps<{ mirror: any }>()
+interface Mirror {
+  name: string
+  status: string
+  enabled: boolean
+  pattern: string
+  upstream: string
+  error?: string
+}
+
+defineProps<{ mirror: Mirror }>()
 </script>
 
 <template>
@@ -12,7 +21,7 @@ defineProps<{ mirror: any }>()
         <StatusDot tone="ok" pulse />
         健康
       </span>
-      <span v-else-if="mirror.status !== 'healthy' && mirror.enabled" class="tag" :class="'tag-warn'">
+      <span v-else-if="mirror.status !== 'healthy' && mirror.enabled" class="tag tag-warn">
         <StatusDot tone="danger" />
         异常
       </span>

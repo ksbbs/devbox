@@ -165,8 +165,8 @@ function tagClass(registry: string) {
           <button class="btn" :disabled="!hasMore" @click="nextPage">下一页</button>
         </div>
       </div>
-      <EmptyState v-if="!results.length && !loading && query" message="搜索结果为空，请尝试其他关键词。" />
-      <EmptyState v-if="!results.length && !loading && !query" message="输入关键词后开始搜索。" />
+      <EmptyState v-if="!results.length && !loading && query.trim()" message="搜索结果为空，请尝试其他关键词。" />
+      <EmptyState v-if="!results.length && !loading && !query.trim()" message="输入关键词后开始搜索。" />
       <div v-if="loading" class="flex items-center justify-center gap-2 px-6 py-6 text-sm text-cyan-400">
         <StatusDot tone="accent" pulse /> 搜索中...
       </div>
