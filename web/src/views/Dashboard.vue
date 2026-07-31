@@ -193,6 +193,7 @@ async function switchChartMode() {
 }
 
 let granularityRequestId = 0
+let logsRequestId = 0
 
 async function switchGranularity(level: 'hourly' | 'daily' | 'weekly') {
   const requestId = ++granularityRequestId
@@ -209,10 +210,16 @@ async function switchGranularity(level: 'hourly' | 'daily' | 'weekly') {
 }
 
 async function refreshLogs() {
+  const requestId = ++logsRequestId
   try {
-    logs.value = await getRecentLogs(50)
+    const data = await getRecentLogs(50)
+    if (requestId !== logsRequestId) return
+    logs.value = Array.isArray(data) ? data : []
+    errorMsg.value = ''
   } catch (e: any) {
-    errorMsg.value = e.response?.statusText || '日志加载失败'
+    if (requestId === logsRequestId) {
+      errorMsg.value = e.response?.statusText || '日志加载失败'
+    }
   }
 }
 

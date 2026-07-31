@@ -116,6 +116,9 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 	if err != nil {
 		slog.Warn("cache header write error", "path", hdrPath, "error", err)
 		os.Remove(path)
+		// os.Create already truncated/replaced any previous file at path, so
+		// drop its size contribution to keep usedBytes in sync with disk.
+		c.usedBytes -= oldSize
 		return
 	}
 	for k, vv := range hdr {
@@ -132,6 +135,7 @@ func (c *Cache) Set(key string, data []byte, hdr http.Header, ttl time.Duration)
 			slog.Warn("cache expiry write error", "path", expPath, "error", err)
 			os.Remove(path)
 			os.Remove(hdrPath)
+			c.usedBytes -= oldSize
 			return
 		}
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
@@ -307,7 +311,12 @@ func (c *Cache) ProxyHTTP(w http.ResponseWriter, r *http.Request, upstream strin
 		slog.Warn("cache rename error", "path", path, "error", err)
 		return
 	}
-	c.writeCacheMeta(path, respHdr, ttl)
+	if !c.writeCacheMeta(path, respHdr, ttl) {
+		// writeCacheMeta already removed the cache file on failure; the
+		// replaced old entry is gone too, so drop its size contribution.
+		c.usedBytes -= oldSize
+		return
+	}
 	c.usedBytes += written - oldSize
 	if c.maxBytes > 0 && c.usedBytes > c.maxBytes {
 		c.evictLRU()
@@ -368,14 +377,15 @@ func isHopByHopHeader(k string) bool {
 }
 
 // writeCacheMeta persists response headers and (optionally) an expiry file
-// for a cached entry. Callers must hold c.mu.
-func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) {
+// for a cached entry. It returns false when metadata could not be written;
+// in that case the cache file itself is removed. Callers must hold c.mu.
+func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) bool {
 	hdrPath := path + ".hdr"
 	hf, err := os.Create(hdrPath)
 	if err != nil {
 		slog.Warn("cache header write error", "path", hdrPath, "error", err)
 		os.Remove(path)
-		return
+		return false
 	}
 	for k, vv := range hdr {
 		for _, v := range vv {
@@ -391,7 +401,7 @@ func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) 
 			slog.Warn("cache expiry write error", "path", expPath, "error", err)
 			os.Remove(path)
 			os.Remove(hdrPath)
-			return
+			return false
 		}
 		fmt.Fprintf(ef, "%d", time.Now().Add(ttl).Unix())
 		ef.Close()
@@ -400,6 +410,7 @@ func (c *Cache) writeCacheMeta(path string, hdr http.Header, ttl time.Duration) 
 		// previous TTL, otherwise shortening the TTL to 0 would not stick.
 		os.Remove(expPath)
 	}
+	return true
 }
 
 func (c *Cache) Hits() int64   { return c.hits.Load() }

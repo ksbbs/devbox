@@ -43,7 +43,8 @@ async function saveRateLimit() {
     rlSaving.value = false
     return
   }
-  if (!/^\d+(ms|s|m|h|d)$/.test(rlInterval.value.trim())) {
+  const interval = rlInterval.value.trim()
+  if (!/^\d+(ms|s|m|h|d)$/.test(interval)) {
     rlMsg.value = '时间窗口格式无效（如 3h、30m、1d）'
     rlSaving.value = false
     return
@@ -51,7 +52,7 @@ async function saveRateLimit() {
   try {
     const wl = rlWhitelist.value.split(',').map(s => s.trim()).filter(Boolean)
     const bl = rlBlacklist.value.split(',').map(s => s.trim()).filter(Boolean)
-    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, interval: rlInterval.value, whitelist: wl, blacklist: bl })
+    const res = await updateRateLimitConfig({ enabled: rlEnabled.value, rate: rlRate.value, interval, whitelist: wl, blacklist: bl })
     rlEnabled.value = res.enabled
     rlRate.value = res.rate
     rlInterval.value = res.interval || rlInterval.value

@@ -51,10 +51,18 @@ function parseTTLSeconds(value: number | string): number {
 function ttlText(value: number | string) {
   const ttl = parseTTLSeconds(value)
   if (!ttl) return '永久缓存'
-  if (ttl >= 86400) return `${Math.round(ttl / 86400)} 天`
-  if (ttl >= 3600) return `${Math.round(ttl / 3600)} 小时`
-  if (ttl >= 60) return `${Math.round(ttl / 60)} 分钟`
+  // 仅当能整除时才换算到更高单位，避免 90s 被显示成"2 分钟"
+  if (ttl % 86400 === 0) return `${ttl / 86400} 天`
+  if (ttl % 3600 === 0) return `${ttl / 3600} 小时`
+  if (ttl % 60 === 0) return `${ttl / 60} 分钟`
   return `${ttl} 秒`
+}
+
+// 当前 TTL 不在预设选项中时，把当前值作为首个选项，避免 select 无选中项
+function withCurrentOption(value: number | string, options: typeof TTL_OPTIONS) {
+  const current = String(value ?? '')
+  if (!current || options.some(opt => opt.value === current)) return options
+  return [{ value: current, label: `当前：${ttlText(current)}` }, ...options]
 }
 
 onMounted(async () => {
@@ -163,7 +171,7 @@ function flashSaved(name: string) {
       <template #desc>控制 /gh/ 与 /gl/ 代理的缓存时长，0 表示禁用缓存。</template>
       <div class="flex flex-wrap items-center gap-3">
         <select v-model="gitTtl" class="input w-40" :disabled="gitSaving">
-          <option v-for="opt in GIT_TTL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          <option v-for="opt in withCurrentOption(gitTtl, GIT_TTL_OPTIONS)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
         <button class="btn btn-primary" :disabled="gitSaving" @click="saveGitTtl">
           {{ gitSaving ? '保存中' : '保存' }}
@@ -207,11 +215,8 @@ function flashSaved(name: string) {
                   :disabled="updating === m.name"
                   @change="updateTTL(m)"
                 >
-                  <option v-for="opt in TTL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                  <option v-for="opt in withCurrentOption(m.cacheTTL, TTL_OPTIONS)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
-                <div v-if="!TTL_OPTIONS.some(o => o.value === m.cacheTTL)" class="mt-1 text-xs text-slate-500">
-                  当前：{{ ttlText(m.cacheTTL) }}
-                </div>
               </template>
               <span v-else class="text-xs text-slate-600">该镜像不缓存</span>
             </td>

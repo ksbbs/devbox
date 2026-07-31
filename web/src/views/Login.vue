@@ -16,10 +16,14 @@ async function submit() {
   try {
     await login(password.value)
     // Only allow relative-path redirects to avoid open-redirect abuse.
-    // Reject protocol-relative URLs too: `//evil.com` starts with "/" but
-    // navigates to an external host.
+    // Reject protocol-relative URLs too: `//evil.com` and `/\evil.com`
+    // start with "/" but navigate to an external host.
     const redirect = new URLSearchParams(window.location.search).get('redirect')
-    const safe = redirect && redirect.startsWith('/') && !redirect.startsWith('//')
+    const safe =
+      redirect &&
+      redirect.startsWith('/') &&
+      !redirect.startsWith('//') &&
+      !redirect.startsWith('/\\')
     window.location.href = safe ? redirect : '/'
   } catch {
     error.value = '认证被拒绝，请检查 AUTH_TOKEN'

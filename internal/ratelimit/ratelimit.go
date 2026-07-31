@@ -44,18 +44,21 @@ func New(limit int, window time.Duration, whitelist []string, blacklist []string
 }
 
 func (l *Limiter) Allow(r *http.Request) bool {
-	// Guard against degenerate configs (rate <= 0 or window <= 0): refusing
-	// everything or nothing would take the whole service down with it.
-	if l.limit <= 0 || l.window <= 0 {
-		return true
-	}
 	ip := l.extractIP(r)
 	ipNet := parseIP(ip)
 
+	// Blacklist stays authoritative even for degenerate configs: a
+	// blacklisted IP must be rejected regardless of quota settings.
 	for _, cidr := range l.blacklist {
 		if cidr.Contains(ipNet) {
 			return false
 		}
+	}
+
+	// Guard against degenerate configs (rate <= 0 or window <= 0): refusing
+	// everything or nothing would take the whole service down with it.
+	if l.limit <= 0 || l.window <= 0 {
+		return true
 	}
 
 	for _, cidr := range l.whitelist {
